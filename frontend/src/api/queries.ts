@@ -62,9 +62,9 @@ export interface AuditEntry {
 /**
  * Dashboard figures.
  *
- * Consumer lag, match rate and error rate are deliberately absent: the service has no Kafka
- * admin client for the first, and no terminal transaction outcome to divide by for the other
- * two. See DashboardMetricsService.
+ * Rates are nullable by design: null means nothing has reconciled yet, which is a different
+ * answer from 0% and must render differently. Consumer lag is still absent — the service has no
+ * Kafka admin client, so it could only be invented. See DashboardMetricsService.
  */
 export interface DashboardMetrics {
   projectionLagMillis: number
@@ -72,7 +72,14 @@ export interface DashboardMetrics {
   transactionCount: number
   transactionsLastHour: number
   auditChainLength: number
-  /** How many documents the lag and window figures were computed from. */
+  /** Transactions that reached a terminal outcome — the denominator of every rate below. */
+  reconciledCount: number
+  /** Still in flight. Published so a backlog is distinguishable from failures. */
+  pendingCount: number
+  matchRate: number | null
+  reviewRate: number | null
+  errorRate: number | null
+  /** How many documents the lag and window figures were computed from. Rates are NOT sampled. */
   sampleSize: number
 }
 

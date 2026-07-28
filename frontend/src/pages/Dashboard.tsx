@@ -6,6 +6,20 @@ import '../styles/dashboard.css'
 const LAG_WARNING_MS = 1000
 const LAG_ALERT_MS = 5000
 
+/** Below this share of reconciled transactions closing automatically, something is off. */
+const MATCH_RATE_WARNING = 0.95
+const ERROR_RATE_ALERT = 0.05
+
+/**
+ * Renders a rate, or an explicit "no data yet" when nothing has reconciled.
+ *
+ * A null rate is not zero. Printing "0.0%" for an empty population would tell an operator the
+ * system is failing when in fact it has not finished anything yet.
+ */
+function percent(rate: number | null): string {
+  return rate === null ? '—' : `${(rate * 100).toFixed(1)}%`
+}
+
 export default function Dashboard() {
   const [metrics, setMetrics] = useState<DashboardMetrics | null>(null)
   const [loading, setLoading] = useState(true)
@@ -80,12 +94,52 @@ export default function Dashboard() {
           <div className="metric-value">{metrics.auditChainLength}</div>
           <div className="metric-status">entries</div>
         </div>
+
+        <div className="metric-card">
+          <div className="metric-label">Match Rate</div>
+          <div className="metric-value">{percent(metrics.matchRate)}</div>
+          <div className="metric-status">
+            {metrics.matchRate === null
+              ? 'nothing reconciled yet'
+              : metrics.matchRate >= MATCH_RATE_WARNING
+                ? '✓ Healthy'
+                : '⚠ Below target'}
+          </div>
+        </div>
+
+        <div className="metric-card">
+          <div className="metric-label">Needs Review</div>
+          <div className="metric-value">{percent(metrics.reviewRate)}</div>
+          <div className="metric-status">
+            {metrics.reviewRate === null ? 'nothing reconciled yet' : 'awaiting an analyst'}
+          </div>
+        </div>
+
+        <div className="metric-card">
+          <div className="metric-label">Unmatched</div>
+          <div className="metric-value">{percent(metrics.errorRate)}</div>
+          <div className="metric-status">
+            {metrics.errorRate === null
+              ? 'nothing reconciled yet'
+              : metrics.errorRate < ERROR_RATE_ALERT
+                ? '✓ Low'
+                : '⚠ High'}
+          </div>
+        </div>
+
+        <div className="metric-card">
+          <div className="metric-label">In Flight</div>
+          <div className="metric-value">{metrics.pendingCount}</div>
+          <div className="metric-status">of {metrics.transactionCount} total</div>
+        </div>
       </div>
 
       <p className="metrics-note">
         Lag and last-hour counts are computed from the {metrics.sampleSize} most recent
-        transactions, not the full collection. Consumer lag, match rate and error rate are not
-        shown: nothing in this service can measure them yet.
+        transactions, not the full collection. The three rates are exact counts over the whole
+        collection, divided by the {metrics.reconciledCount} transactions that have reached a
+        terminal outcome — not by all {metrics.transactionCount}, so a backlog does not read as a
+        failure. Consumer lag is still not shown: nothing in this service can measure it.
       </p>
 
       <div className="alerts-section">
@@ -101,9 +155,16 @@ export default function Dashboard() {
               ⚠️ High projection lag: {metrics.projectionLagMillis}ms. Check Kafka consumer status.
             </div>
           )}
-          {metrics.dltDepth === 0 && metrics.projectionLagMillis < LAG_WARNING_MS && (
-            <div className="alert alert-success">✓ No alerts on the signals being measured.</div>
+          {metrics.errorRate !== null && metrics.errorRate >= ERROR_RATE_ALERT && (
+            <div className="alert alert-error">
+              🔴 {percent(metrics.errorRate)} of reconciled transactions found no counterpart.
+            </div>
           )}
+          {metrics.dltDepth === 0 &&
+            metrics.projectionLagMillis < LAG_WARNING_MS &&
+            (metrics.errorRate === null || metrics.errorRate < ERROR_RATE_ALERT) && (
+              <div className="alert alert-success">✓ No alerts on the signals being measured.</div>
+            )}
         </div>
       </div>
     </div>

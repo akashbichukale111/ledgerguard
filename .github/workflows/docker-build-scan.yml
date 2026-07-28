@@ -37,6 +37,7 @@ jobs:
           - reconciliation-service
           - query-service
           - auth-server
+          - ledgerguard-gateway
 
     steps:
       - name: Checkout code

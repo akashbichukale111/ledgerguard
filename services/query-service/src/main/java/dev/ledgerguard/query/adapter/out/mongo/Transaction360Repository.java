@@ -21,4 +21,16 @@ public interface Transaction360Repository extends MongoRepository<Transaction360
 
     List<Transaction360Document> findAllByOrderByOccurredAtDescTransactionIdDesc(
             org.springframework.data.domain.Pageable pageable);
+
+    /**
+     * Counts by terminal status, for the dashboard's match and error rates.
+     *
+     * <p>A count query rather than a scan: these run on every dashboard poll, and the figures must
+     * describe the whole collection rather than a sample — a match rate computed off the most recent
+     * 200 documents would swing wildly and mean nothing.
+     */
+    long countByStatus(String status);
+
+    /** How many transactions have reached any terminal outcome. The denominator of every rate. */
+    long countByReconciledAtIsNotNull();
 }

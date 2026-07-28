@@ -1,0 +1,37 @@
+spring:
+  application:
+    name: ledgerguard-gateway
+  cloud:
+    gateway:
+      server:
+        webflux:
+          # Routes are declared in RoutingConfig, not here: their ORDER is load-bearing and a Java
+          # list makes that explicit and testable.
+          httpclient:
+            connect-timeout: 2000
+            response-timeout: 30s
+
+server:
+  port: 8080
+
+ledgerguard:
+  gateway:
+    # Overridden per environment. Defaults are the local direct-run ports from the README.
+    auth-server: http://localhost:8084
+    transaction-service: http://localhost:8081
+    query-service: http://localhost:8083
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,gateway
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+logging:
+  level:
+    # Useful when a route does not match: prints the predicate evaluation.
+    org.springframework.cloud.gateway: INFO

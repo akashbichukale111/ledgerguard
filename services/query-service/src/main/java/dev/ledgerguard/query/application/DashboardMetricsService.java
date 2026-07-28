@@ -17,20 +17,20 @@ import dev.ledgerguard.query.adapter.out.persistence.DltMessageRepository;
 /**
  * Computes the console's dashboard figures.
  *
- * <p>Every field here is derived from data this service actually holds. That constraint is the
- * reason the shape is narrower than the console's first draft, which asked for consumer lag, a
- * match rate and an error rate:
+ * <p>Every field here is derived from data this service actually holds.
  *
- * <ul>
- *   <li><b>Consumer lag</b> needs a Kafka {@code AdminClient} querying group offsets. The service
- *       has no admin client, so the number could only have been invented.
- *   <li><b>Match rate</b> and <b>error rate</b> need a terminal outcome per transaction. Today the
- *       projection only ever sets status {@code RECEIVED} — {@code TransactionReceived} is the sole
- *       contracted event type — so there is no matched or failed population to divide by. Reporting
- *       "100% matched" off an empty numerator would be worse than reporting nothing.
- * </ul>
+ * <p><b>Match rate and error rate are back.</b> They were omitted through Phase 17 because nothing
+ * ever moved a transaction off {@code RECEIVED} — {@code TransactionReceived} was the only
+ * contracted event, so there was no finished population to divide by, and a rate computed off an
+ * empty numerator would have been a fabrication. {@code TransactionReconciled} supplies that
+ * population, so the rates are now measured.
  *
- * <p>Those three are omitted rather than faked. See the phase-17 report.
+ * <p>They are reported against {@code reconciledCount}, not against every transaction, and the
+ * pending count is published alongside. A rate whose denominator silently includes in-flight work
+ * reads as a failure rate when it is really a backlog — the two need to stay distinguishable.
+ *
+ * <p><b>Consumer lag remains absent.</b> It needs a Kafka {@code AdminClient} querying group
+ * offsets, which this service does not have, so the number could only be invented.
  */
 @Service
 public class DashboardMetricsService {
@@ -71,8 +71,19 @@ public class DashboardMetricsService {
      * @param transactionsLastHour transactions whose event time falls in the last hour, within the
      *     sample — a floor, not a total, when volume exceeds the sample size
      * @param auditChainLength entries in the audit chain
+     * @param reconciledCount transactions that have reached a terminal outcome — the denominator of
+     *     both rates below
+     * @param pendingCount transactions still in flight. Published so a low match rate caused by a
+     *     backlog is distinguishable from one caused by failures
+     * @param matchRate fraction of reconciled transactions the engine closed itself, in [0,1], or
+     *     null when nothing has reconciled yet. Null rather than zero: "no data" and "nothing
+     *     matched" are different answers and an operator must be able to tell them apart
+     * @param reviewRate fraction of reconciled transactions awaiting human review, in [0,1], or null
+     * @param errorRate fraction of reconciled transactions with no counterpart at all, in [0,1], or
+     *     null
      * @param sampleSize how many documents the lag and window figures were computed from, so the
-     *     console can say what the numbers are based on rather than implying they are exhaustive
+     *     console can say what the numbers are based on rather than implying they are exhaustive.
+     *     The rates above are NOT sampled — they are exact counts over the whole collection
      */
     public record DashboardMetrics(
             long projectionLagMillis,
@@ -80,7 +91,18 @@ public class DashboardMetricsService {
             long transactionCount,
             long transactionsLastHour,
             long auditChainLength,
+            long reconciledCount,
+            long pendingCount,
+            Double matchRate,
+            Double reviewRate,
+            Double errorRate,
             int sampleSize) {}
+
+    /** Terminal statuses, mirroring {@code ReconciliationOutcome} on the producing side. */
+    private static final String MATCHED = "MATCHED";
+
+    private static final String REQUIRES_REVIEW = "REQUIRES_REVIEW";
+    private static final String UNMATCHED = "UNMATCHED";
 
     public DashboardMetrics current() {
         List<Transaction360Document> sample =
@@ -102,12 +124,32 @@ public class DashboardMetricsService {
                 .filter(d -> d.getOccurredAt() != null && d.getOccurredAt().isAfter(windowStart))
                 .count();
 
+        // Exact counts, not sampled: a match rate computed off the most recent 200 documents would
+        // swing with arrival order and tell an operator nothing.
+        long total = transactions.count();
+        long reconciled = transactions.countByReconciledAtIsNotNull();
+
         return new DashboardMetrics(
                 worstLagMillis,
                 dltMessages.countByReplayedAtIsNull(),
-                transactions.count(),
+                total,
                 inWindow,
                 auditEvents.count(),
+                reconciled,
+                Math.max(0L, total - reconciled),
+                rateOf(transactions.countByStatus(MATCHED), reconciled),
+                rateOf(transactions.countByStatus(REQUIRES_REVIEW), reconciled),
+                rateOf(transactions.countByStatus(UNMATCHED), reconciled),
                 sample.size());
+    }
+
+    /**
+     * A rate, or null when there is nothing to divide by.
+     *
+     * <p>Null rather than 0.0 on an empty population. Zero would render as "0% matched", which reads
+     * as a total failure when the truth is that nothing has finished yet.
+     */
+    private static Double rateOf(long numerator, long denominator) {
+        return denominator == 0 ? null : (double) numerator / denominator;
     }
 }

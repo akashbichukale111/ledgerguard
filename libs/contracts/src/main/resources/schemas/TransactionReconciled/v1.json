@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ledgerguard.dev/schemas/TransactionReconciled/v1.json",
+  "title": "TransactionReconciled",
+  "description": "The terminal outcome of reconciling one transaction. Until this event existed a transaction's projected status never advanced past RECEIVED, so no match rate or error rate could be computed from the read model — the dashboard omitted both rather than divide by an empty population. The explanation fields are part of the contract, not an afterthought: a downstream consumer that can see the outcome but not the reasoning cannot act on it.",
+  "type": "object",
+  "required": [
+    "transactionId",
+    "outcome",
+    "classification",
+    "matchedEntryIds",
+    "ruleId",
+    "ruleSetVersion",
+    "candidatePoolSize",
+    "reconciledAt"
+  ],
+  "properties": {
+    "transactionId": {
+      "type": "string",
+      "format": "uuid",
+      "description": "The transaction this outcome belongs to. Also the Kafka partition key, so outcomes stay ordered against the TransactionReceived that preceded them."
+    },
+    "outcome": {
+      "type": "string",
+      "enum": ["MATCHED", "REQUIRES_REVIEW", "UNMATCHED"],
+      "description": "Coarse business outcome. Deliberately narrower than `classification`: a consumer building a dashboard should not have to know all nine engine classifications to answer 'did this settle'."
+    },
+    "classification": {
+      "type": "string",
+      "enum": [
+        "AUTO_MATCHED",
+        "MATCHED_WITH_TOLERANCE",
+        "REQUIRES_REVIEW",
+        "DUPLICATE",
+        "MISSING_INTERNAL",
+        "MISSING_EXTERNAL",
+        "AMOUNT_MISMATCH",
+        "DATE_MISMATCH",
+        "UNMATCHED"
+      ],
+      "description": "The engine's own classification, carried through unflattened so an analyst sees exactly which case fired."
+    },
+    "matchedEntryIds": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "description": "Counterpart entries. A list because 1:N settlement is real — one statement line closing several postings. Empty when nothing matched."
+    },
+    "ruleId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Which rule fired."
+    },
+    "ruleSetVersion": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The rule set in force, so a decision stays explainable years after the rules change."
+    },
+    "candidatePoolSize": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "How many candidates survived blocking. Distinguishes 'the only option' from 'one of forty', which is the difference between a safe auto-match and a lucky one."
+    },
+    "reconciledAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When the engine reached this outcome."
+    }
+  }
+}

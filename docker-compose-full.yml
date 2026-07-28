@@ -131,6 +131,27 @@ services:
       timeout: 10s
       retries: 3
 
+  ledgerguard-gateway:
+    build:
+      context: .
+      dockerfile: services/ledgerguard-gateway/Dockerfile
+    environment:
+      LEDGERGUARD_GATEWAY_AUTH_SERVER: http://auth-server:8084
+      LEDGERGUARD_GATEWAY_TRANSACTION_SERVICE: http://transaction-service:8080
+      LEDGERGUARD_GATEWAY_QUERY_SERVICE: http://query-service:8080
+      MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: health,info,gateway
+    ports:
+      - "8080:8080"
+    depends_on:
+      - auth-server
+      - transaction-service
+      - query-service
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O-", "http://localhost:8080/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
   frontend:
     build:
       context: frontend

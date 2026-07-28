@@ -145,6 +145,23 @@ public class ProjectionService {
                     UUID.fromString(envelope.path("correlationId").asText()));
             document.addNode(new Transaction360Document.LifecycleNode(
                     "INGESTED", "transaction-service", occurredAt, clock.instant(), "SUCCESS", "transaction accepted"));
+
+        } else if ("TransactionReconciled".equals(eventType)) {
+            // The terminal outcome. Until this event existed nothing ever moved a transaction off
+            // RECEIVED, so the read model had no finished population and match rate and error rate
+            // could not be computed from it at all.
+            String outcome = payload.path("outcome").asText();
+            document.setStatus(outcome);
+            document.setReconciledAt(occurredAt);
+
+            document.addNode(new Transaction360Document.LifecycleNode(
+                    "RECONCILED",
+                    "reconciliation-service",
+                    occurredAt,
+                    clock.instant(),
+                    outcome,
+                    describeOutcome(payload)));
+
         } else {
             document.addNode(new Transaction360Document.LifecycleNode(
                     eventType, "reconciliation-service", occurredAt, clock.instant(), "SUCCESS", eventType));
@@ -154,6 +171,21 @@ public class ProjectionService {
         document.setUpdatedAt(clock.instant());
         transactions.save(document);
         return true;
+    }
+
+    /**
+     * Renders the engine's reasoning into the one line the console's timeline shows.
+     *
+     * <p>The rule and the candidate pool size are the two facts an analyst asks for first: "one of
+     * forty" and "the only option" are the same outcome with very different confidence behind it.
+     */
+    private static String describeOutcome(JsonNode payload) {
+        return "%s via %s (rule %s, %d candidates)"
+                .formatted(
+                        payload.path("classification").asText(),
+                        payload.path("ruleSetVersion").asText(),
+                        payload.path("ruleId").asText(),
+                        payload.path("candidatePoolSize").asInt());
     }
 
     /**

@@ -177,6 +177,16 @@ docker-compose -f docker-compose-full.yml down
 - **Port**: 8083 (Docker) / 8080 (direct)
 - **Key Endpoints**: Transaction 360 view, DLT explorer, metrics
 
+#### Gateway
+- **Responsibility**: Edge routing, correlation-ID minting, security headers. No business logic
+- **Technology**: Spring Cloud Gateway (reactive)
+- **Port**: 8080
+- **Routes**: `/api/v1/auth/**` → auth-server; `POST /api/v1/transactions` → transaction-service;
+  everything else under `/api/v1/**` → query-service. Order matters — the first two are subsets of
+  the third
+- **Not implemented**: JWT validation (no token is issued yet) and rate limiting (needs a shared
+  store). See [phase-19](docs/phase-reports/phase-19.md)
+
 #### Frontend
 - **Responsibility**: Operations console UI
 - **Technology**: React 18, TypeScript, Vite
@@ -330,7 +340,7 @@ npm run preview
 
 ### Test Suite Overview
 
-**254 unit tests + 28 integration tests, 0 failures** — unit counts from `mvn verify -DskipITs`
+**320 unit tests + 28 integration tests, 0 failures** — unit counts from `mvn verify -DskipITs`
 locally; the integration tests execute on CI against real Testcontainers Postgres and Kafka
 (`WritePathIT` 10, `SagaOrchestratorIT` 13, `AuditChainIT` 3, `ProjectionIT` 2). Includes jqwik
 property tests over the reconciliation engine, an ArchUnit layer check, and Kafka event schema
@@ -445,8 +455,13 @@ Response: {
   "sampleSize": 200              # what the sampled figures are based on
 }
 
-Consumer lag, match rate and error rate are deliberately absent — nothing in this service can
-measure them yet. See docs/phase-reports/phase-17.md.
+Consumer lag is absent — it needs a Kafka AdminClient this service does not have. The three rates
+divide by `reconciledCount`, not by every transaction, so a backlog does not read as a failure; a
+rate is `null` rather than `0.0` when nothing has reconciled yet.
+
+Note that with no counterparty statement feed in this repository, every transaction reconciles as
+`UNMATCHED` and the match rate will read 0%. That is real output, not a defect — see
+[phase-19](docs/phase-reports/phase-19.md).
 ```
 
 ## Observability

@@ -3,12 +3,15 @@ package dev.ledgerguard.reconciliation.config;
 import java.time.Clock;
 import java.time.Duration;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.kafka.core.KafkaTemplate;
 
 import dev.ledgerguard.common.core.id.Uuid7;
 import dev.ledgerguard.common.core.money.CurrencyCode;
+import dev.ledgerguard.reconciliation.adapter.out.messaging.ReconciliationEventPublisher;
 import dev.ledgerguard.reconciliation.adapter.out.persistence.CompensationRepository;
 import dev.ledgerguard.reconciliation.adapter.out.persistence.SagaInstanceRepository;
 import dev.ledgerguard.reconciliation.adapter.out.persistence.SagaStepRepository;
@@ -41,6 +44,19 @@ public class ReconciliationConfig {
     @Bean
     public ReconciliationEngine reconciliationEngine(BusinessCalendar calendar) {
         return new ReconciliationEngine(MatchingConfig.defaultConfig(CurrencyCode.of("USD")), calendar);
+    }
+
+    /**
+     * Built here rather than component-scanned because the topic name is configuration and cannot be
+     * autowired as a bare String.
+     */
+    @Bean
+    public ReconciliationEventPublisher reconciliationEventPublisher(
+            KafkaTemplate<String, String> kafka,
+            ObjectMapper objectMapper,
+            Clock clock,
+            @Value("${ledgerguard.topics.reconciliation:reconciliation.events.v1}") String topic) {
+        return new ReconciliationEventPublisher(kafka, objectMapper, clock, topic);
     }
 
     @Bean

@@ -38,6 +38,14 @@ public class Transaction360Document {
     /** Set on every projection write; the difference from occurredAt IS the projection lag. */
     private Instant updatedAt;
 
+    /**
+     * When the reconciliation outcome arrived, or null while the transaction is still in flight.
+     *
+     * <p>Distinct from {@code updatedAt}, which moves on every write. This is what separates
+     * "finished" from "seen recently", and it is the population any match rate must divide by.
+     */
+    private Instant reconciledAt;
+
     private List<LifecycleNode> timeline = new ArrayList<>();
 
     /**
@@ -161,6 +169,19 @@ public class Transaction360Document {
 
     public void setUpdatedAt(Instant updatedAt) {
         this.updatedAt = updatedAt;
+    }
+
+    public Instant getReconciledAt() {
+        return reconciledAt;
+    }
+
+    public void setReconciledAt(Instant reconciledAt) {
+        this.reconciledAt = reconciledAt;
+    }
+
+    /** True once a reconciliation outcome has been projected. */
+    public boolean isReconciled() {
+        return reconciledAt != null;
     }
 
     public List<LifecycleNode> getTimeline() {

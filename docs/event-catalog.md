@@ -83,6 +83,42 @@ was removed, narrowed, or promoted to required. A v1 producer's message still va
 and a consumer written against v1 still finds every field it knows. `SchemaCompatibilityTest`
 asserts exactly this.
 
+### `TransactionReconciled`
+
+**Current version: v1** · Producer: `reconciliation-service` · Consumers: `query-service` ·
+Topic: `reconciliation.events.v1`
+
+The terminal outcome of reconciling one transaction. Emitted once the matching engine has reached a
+decision, whether or not that decision is a match — an unmatched transaction is a business outcome
+that operators need to see, not an absence of one.
+
+Its `causationId` is the `eventId` of the `TransactionReceived` that started the flow, and it
+carries the same `correlationId`, so the two sides of the story join up in the audit trail.
+
+**Why this event exists.** Before it, the query-service projection only ever set status `RECEIVED`,
+because `TransactionReceived` was the only contracted event. That meant no transaction ever reached
+a terminal state in the read model, so match rate and error rate had no population to divide by and
+the dashboard omitted them rather than report a fabricated figure. This event is what makes those
+metrics computable from real data.
+
+| Field | Type | v1 | Notes |
+|---|---|---|---|
+| `transactionId` | uuid | required | Also the Kafka partition key, so an outcome cannot overtake the `TransactionReceived` it answers |
+| `outcome` | enum `MATCHED`\|`REQUIRES_REVIEW`\|`UNMATCHED` | required | Coarse business outcome; deliberately narrower than `classification` |
+| `classification` | enum (9 values) | required | The engine's own classification, carried through unflattened |
+| `matchedEntryIds` | array of string | required | A list because 1:N settlement is real. Empty when nothing matched |
+| `ruleId` | string | required | Which rule fired |
+| `ruleSetVersion` | string | required | The rule set in force, so the decision stays explainable later |
+| `candidatePoolSize` | int ≥ 0 | required | Distinguishes "the only option" from "one of forty" |
+| `reconciledAt` | date-time | required | When the engine reached the outcome |
+
+Schema: `schemas/TransactionReconciled/v1.json`
+
+**`outcome` is derived from `classification`, not chosen independently** — see
+`ReconciliationOutcome.of`. `AUTO_MATCHED` and `MATCHED_WITH_TOLERANCE` are the only two the engine
+may close on its own; every other classification lands on the human side of that line, which is why
+a fuzzy match maps to `REQUIRES_REVIEW` and not to `MATCHED` however confident it looks.
+
 ## Compatibility policy
 
 Schemas are **immutable once committed**. A change means a new version file, never an edit.

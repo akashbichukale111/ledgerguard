@@ -9,5 +9,39 @@
   </parent>
 
   <artifactId>ledgerguard-gateway</artifactId>
-  <description>Edge: routing, JWT validation, rate limiting, correlation-ID minting, security headers. No business logic.</description>
+  <description>Edge: routing, correlation-ID minting and security headers. No business logic.
+    JWT validation and rate limiting are named in the architecture but are NOT implemented here —
+    see docs/phase-reports/phase-19.md for what each needs first.</description>
+
+  <dependencies>
+    <!-- Reactive gateway. The starter was renamed in the Spring Cloud 2025.x train; the older
+         spring-cloud-starter-gateway coordinate does not resolve against this BOM. -->
+    <dependency>
+      <groupId>org.springframework.cloud</groupId>
+      <artifactId>spring-cloud-starter-gateway-server-webflux</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-actuator</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>io.projectreactor</groupId>
+      <artifactId>reactor-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-maven-plugin</artifactId>
+      </plugin>
+    </plugins>
+  </build>
 </project>

@@ -105,6 +105,77 @@ class DashboardMetricsServiceTest {
     }
 
     @Test
+    void ratesAreNullWhenNothingHasReconciledYet() {
+        // Null, not 0.0. Zero renders as "0% matched", which reads as total failure when the truth
+        // is that nothing has finished — an operator must be able to tell those apart.
+        sample(List.of());
+        when(transactions.countByReconciledAtIsNotNull()).thenReturn(0L);
+
+        var metrics = service.current();
+
+        assertThat(metrics.matchRate()).isNull();
+        assertThat(metrics.reviewRate()).isNull();
+        assertThat(metrics.errorRate()).isNull();
+    }
+
+    @Test
+    void ratesDivideByTheReconciledPopulationNotEveryTransaction() {
+        // 100 transactions exist, only 40 have finished: 30 matched, 6 in review, 4 unmatched.
+        // Dividing by 100 would report 30% matched and imply 70% failed, when 60 are simply still
+        // in flight.
+        sample(List.of());
+        when(transactions.count()).thenReturn(100L);
+        when(transactions.countByReconciledAtIsNotNull()).thenReturn(40L);
+        when(transactions.countByStatus("MATCHED")).thenReturn(30L);
+        when(transactions.countByStatus("REQUIRES_REVIEW")).thenReturn(6L);
+        when(transactions.countByStatus("UNMATCHED")).thenReturn(4L);
+
+        var metrics = service.current();
+
+        assertThat(metrics.matchRate()).isEqualTo(0.75);
+        assertThat(metrics.reviewRate()).isEqualTo(0.15);
+        assertThat(metrics.errorRate()).isEqualTo(0.10);
+    }
+
+    @Test
+    void pendingIsPublishedSoABacklogIsDistinguishableFromFailures() {
+        sample(List.of());
+        when(transactions.count()).thenReturn(100L);
+        when(transactions.countByReconciledAtIsNotNull()).thenReturn(40L);
+
+        var metrics = service.current();
+
+        assertThat(metrics.reconciledCount()).isEqualTo(40L);
+        assertThat(metrics.pendingCount()).isEqualTo(60L);
+    }
+
+    @Test
+    void pendingNeverGoesNegativeIfCountsRaceEachOther() {
+        // The two counts are separate queries; a write between them can make reconciled exceed the
+        // total momentarily. A negative backlog on a dashboard is worse than a stale zero.
+        sample(List.of());
+        when(transactions.count()).thenReturn(5L);
+        when(transactions.countByReconciledAtIsNotNull()).thenReturn(7L);
+
+        assertThat(service.current().pendingCount()).isZero();
+    }
+
+    @Test
+    void ratesAreExactCountsNotSampledLikeTheLagFigures() {
+        // The lag sample is bounded at 200 documents. A rate computed off that window would swing
+        // with arrival order, so the rates use count queries over the whole collection instead.
+        sample(List.of(doc("a", NOW, NOW)));
+        when(transactions.count()).thenReturn(10_000L);
+        when(transactions.countByReconciledAtIsNotNull()).thenReturn(10_000L);
+        when(transactions.countByStatus("MATCHED")).thenReturn(9_900L);
+
+        var metrics = service.current();
+
+        assertThat(metrics.sampleSize()).isEqualTo(1);
+        assertThat(metrics.matchRate()).isEqualTo(0.99);
+    }
+
+    @Test
     void sampleSizeReportsWhatTheFiguresWereComputedFrom() {
         // The console prints this so a sampled figure is not read as an exhaustive one.
         sample(List.of(doc("a", NOW, NOW), doc("b", NOW, NOW)));
