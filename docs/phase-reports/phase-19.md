@@ -1,6 +1,7 @@
 # Phase 19: A Contracted Reconciliation Event, and a Real Gateway
 
 **Status**: ✅ Build green — 320 unit tests, 0 failures. Two long-standing empty spots filled.
+One regression introduced during this phase, caught by CI and fixed — see §3a.
 
 Everything in §1–§3 was produced by running the command shown. §5 states what is still unexecuted
 or absent.
@@ -133,6 +134,35 @@ cd frontend && npm run lint && npm run type-check && npm run build
 | query-service | 36 | **48** |
 | auth-server | 6 | 6 |
 | **Total** | **254** | **320** |
+
+---
+
+## 3a. A regression this phase introduced, and how it surfaced
+
+The first push (`1337269`) was green locally and **failed on CI**: all 13 `SagaOrchestratorIT`
+tests errored with `Failed to load ApplicationContext`.
+
+Not a saga failure. `SagaOrchestratorIT` boots the whole application but supplies **only a
+PostgreSQL container**. Adding a `@KafkaListener` to the service meant Spring now starts a listener
+container during context refresh, which tried to reach a broker that the test never provides. The
+test's fixture had stopped covering what the application does.
+
+Fixed by disabling listener auto-startup for that test:
+
+```java
+registry.add("spring.kafka.listener.auto-startup", () -> "false");
+```
+
+Chosen over adding a Kafka container because this test is about saga state transitions against a
+real database; standing up a broker would make it slower and less focused without asserting
+anything more. It is also the pattern already used by `ProjectionIT` and `AuditChainIT` — the
+inconsistency was `SagaOrchestratorIT`, which had never needed it before. `WritePathIT` runs a real
+`KafkaContainer` and needs no such property. All four are now consistent.
+
+**Worth naming plainly:** this could not have been caught locally. Integration tests are skipped
+here because there is no Docker daemon, so `mvn verify -DskipITs` was green while the branch was
+broken. That is the second consecutive phase in which CI found something local runs structurally
+cannot — the argument for reading CI after every push rather than assuming green.
 
 ---
 

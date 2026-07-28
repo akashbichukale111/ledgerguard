@@ -65,6 +65,17 @@ class SagaOrchestratorIT {
         registry.add("spring.datasource.username", POSTGRES::getUsername);
         registry.add("spring.datasource.password", POSTGRES::getPassword);
         registry.add("ledgerguard.saga.timeout", () -> "PT5M");
+
+        // This test boots the whole application but supplies only PostgreSQL. Once the service
+        // gained a @KafkaListener the container tried to reach a broker during context refresh and
+        // every test here failed to start — not because the saga broke, but because the test's
+        // fixture no longer covered what the application now does.
+        //
+        // Disabled rather than adding a Kafka container: this test is about saga state transitions
+        // against a real database, and widening it to stand up a broker would make it slower and
+        // less focused without asserting anything more. The consumer that needs Kafka is covered by
+        // its own unit tests.
+        registry.add("spring.kafka.listener.auto-startup", () -> "false");
     }
 
     /**
