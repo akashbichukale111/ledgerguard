@@ -15,7 +15,6 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -95,26 +94,34 @@ public class SubmitTransactionHandler {
             return replayOrConflict(existing.get(), bodyHash, command);
         }
 
-        // Claim the key first. If a concurrent request beat us to it, the primary key rejects this
-        // insert and we fall into the replay path — the constraint, not a prior read, is what makes
-        // this safe.
-        IdempotencyRecordEntity claim;
-        try {
-            // The RETURNED instance must be used, not the one passed in. This entity has an
-            // assigned (non-generated) String id and no @Version, so Spring Data treats it as
-            // not-new and calls merge() rather than persist(). merge() returns a DIFFERENT managed
-            // instance and leaves the argument detached — mutating the argument later would be
-            // silently discarded at commit, and the idempotency record would stay IN_FLIGHT
-            // forever, turning every legitimate replay into a 409.
-            claim = idempotency.saveAndFlush(
-                    new IdempotencyRecordEntity(command.idempotencyKey(), ENDPOINT, bodyHash, now));
-        } catch (DataIntegrityViolationException e) {
+        // Claim the key with a single atomic INSERT ... ON CONFLICT DO NOTHING. The constraint, not
+        // a prior read, is what makes this safe: the findById above only short-circuits the common
+        // case and cannot be relied on, because another request may commit between it and here.
+        //
+        // This deliberately does NOT use save()/saveAndFlush(). See IdempotencyRepository#tryClaim
+        // for why that silently permitted duplicate instructions.
+        int claimed = idempotency.tryClaim(command.idempotencyKey(), ENDPOINT, bodyHash, now);
+
+        if (claimed == 0) {
+            // Someone else holds the key. By the time tryClaim returns, their row is committed and
+            // visible, so the winner can be read and replayed within this same transaction — no
+            // constraint violation was raised, so the transaction is still usable.
             log.debug("idempotency key {} claimed concurrently", command.idempotencyKey());
             IdempotencyRecordEntity winner = idempotency
                     .findById(command.idempotencyKey())
-                    .orElseThrow(() -> e); // genuinely unexpected: rethrow rather than guess
+                    // The row must exist: tryClaim reported a conflict against it.
+                    .orElseThrow(
+                            () -> new IllegalStateException("idempotency key %s conflicted but no record is readable"
+                                    .formatted(command.idempotencyKey())));
             return replayOrConflict(winner, bodyHash, command);
         }
+
+        // Load the row just inserted so it is managed by the persistence context; the completion
+        // below is applied by dirty checking at commit.
+        IdempotencyRecordEntity claim = idempotency
+                .findById(command.idempotencyKey())
+                .orElseThrow(() -> new IllegalStateException(
+                        "idempotency key %s was claimed but cannot be read back".formatted(command.idempotencyKey())));
 
         UUID transactionId = ids.next();
         Money amount = command.amount();

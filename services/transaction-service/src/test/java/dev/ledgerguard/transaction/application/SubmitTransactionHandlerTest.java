@@ -3,6 +3,8 @@ package dev.ledgerguard.transaction.application;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -22,7 +24,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
-import org.springframework.dao.DataIntegrityViolationException;
 
 import dev.ledgerguard.common.core.error.ErrorCode;
 import dev.ledgerguard.common.core.id.Uuid7;
@@ -99,10 +100,15 @@ class SubmitTransactionHandlerTest {
                 "{\"reference\":\"" + reference + "\",\"amount\":\"" + amount + "\"}");
     }
 
-    /** The claim insert succeeds and returns a managed instance, as Spring Data would. */
-    private void claimSucceeds() {
-        when(idempotency.findById(KEY)).thenReturn(Optional.empty());
-        when(idempotency.saveAndFlush(any(IdempotencyRecordEntity.class))).thenAnswer(inv -> inv.getArgument(0));
+    /**
+     * The claim wins: the pre-check sees nothing, tryClaim inserts a row, and the read-back returns
+     * the managed instance the handler completes by dirty checking.
+     */
+    private IdempotencyRecordEntity claimSucceeds() {
+        var claimed = new IdempotencyRecordEntity(KEY, "POST /api/v1/transactions", bodyHashOf(command()), NOW);
+        when(idempotency.findById(KEY)).thenReturn(Optional.empty()).thenReturn(Optional.of(claimed));
+        when(idempotency.tryClaim(eq(KEY), anyString(), anyString(), any())).thenReturn(1);
+        return claimed;
     }
 
     @Nested
@@ -164,15 +170,28 @@ class SubmitTransactionHandlerTest {
 
         @Test
         void completesTheIdempotencyRecordSoAReplayCanSucceed() {
-            claimSucceeds();
-            ArgumentCaptor<IdempotencyRecordEntity> captor = ArgumentCaptor.forClass(IdempotencyRecordEntity.class);
+            IdempotencyRecordEntity claimed = claimSucceeds();
 
             handler.handle(command());
 
-            verify(idempotency).saveAndFlush(captor.capture());
             // Completed inside the same transaction: a replay must never see COMPLETED for an
-            // aggregate that rolled back.
-            assertThat(captor.getValue().state()).isEqualTo(IdempotencyRecordEntity.State.COMPLETED);
+            // aggregate that rolled back. The row is managed, so dirty checking persists this.
+            assertThat(claimed.state()).isEqualTo(IdempotencyRecordEntity.State.COMPLETED);
+        }
+
+        @Test
+        void theClaimIsAnAtomicInsertNotAMergingSave() {
+            // Regression guard for the bug WritePathIT.concurrentDuplicatesCreateOneAggregate caught
+            // on CI. save()/saveAndFlush() on this entity resolves to merge(), which turns a claim
+            // into an UPDATE once the winner has committed — no violation, and the loser goes on to
+            // write a second aggregate and a second outbox row.
+            claimSucceeds();
+
+            handler.handle(command());
+
+            verify(idempotency).tryClaim(eq(KEY), anyString(), anyString(), any());
+            verify(idempotency, never()).saveAndFlush(any(IdempotencyRecordEntity.class));
+            verify(idempotency, never()).save(any(IdempotencyRecordEntity.class));
         }
     }
 
@@ -222,32 +241,53 @@ class SubmitTransactionHandlerTest {
     @DisplayName("concurrent claim")
     class ConcurrentClaim {
 
-        @Test
-        void losingTheRaceFallsBackToTheWinnersStoredResponse() {
-            // Two requests with the same key arrive together. The primary key — not a prior read —
-            // is what makes this safe, so the loser must read the winner's record and replay it.
+        /** A winner that has already committed a completed record for the same key. */
+        private IdempotencyRecordEntity committedWinner() {
             var winner = new IdempotencyRecordEntity(KEY, "POST /api/v1/transactions", bodyHashOf(command()), NOW);
             winner.complete(202, "{\"transactionId\":\"winner\"}", NOW);
+            return winner;
+        }
 
-            when(idempotency.findById(KEY)).thenReturn(Optional.empty()).thenReturn(Optional.of(winner));
-            when(idempotency.saveAndFlush(any(IdempotencyRecordEntity.class)))
-                    .thenThrow(new DataIntegrityViolationException("duplicate key"));
+        private void loseTheRace(IdempotencyRecordEntity winner) {
+            when(idempotency.findById(KEY)).thenReturn(Optional.empty()).thenReturn(Optional.ofNullable(winner));
+            when(idempotency.tryClaim(eq(KEY), anyString(), anyString(), any())).thenReturn(0);
+        }
+
+        @Test
+        void losingTheRaceFallsBackToTheWinnersStoredResponse() {
+            // Two requests with the same key arrive together. The constraint — not a prior read —
+            // is what makes this safe, so the loser must read the winner's record and replay it.
+            loseTheRace(committedWinner());
 
             SubmitTransactionResult result = handler.handle(command());
 
             assertThat(result.body()).contains("winner");
-            verify(transactions, never()).save(any());
+            assertThat(result.replay()).isTrue();
         }
 
         @Test
-        void aConstraintViolationWithNoRecoverableRecordIsRethrown() {
-            // If the insert failed but no record exists, something other than a key collision went
-            // wrong. Guessing would hide it.
-            when(idempotency.findById(KEY)).thenReturn(Optional.empty());
-            when(idempotency.saveAndFlush(any(IdempotencyRecordEntity.class)))
-                    .thenThrow(new DataIntegrityViolationException("some other constraint"));
+        void theLoserWritesNoAggregateAndNoOutboxRow() {
+            // The heart of it: one client intent must produce one financial instruction. This is
+            // the invariant WritePathIT.concurrentDuplicatesCreateOneAggregate found violated on CI,
+            // because save() resolved to merge() and quietly overwrote the winner's claim.
+            loseTheRace(committedWinner());
 
-            assertThatThrownBy(() -> handler.handle(command())).isInstanceOf(DataIntegrityViolationException.class);
+            handler.handle(command());
+
+            verify(transactions, never()).save(any());
+            verify(ledgerEntries, never()).saveAll(any());
+            verify(outbox, never()).save(any());
+        }
+
+        @Test
+        void aConflictWithNoReadableRecordFailsLoudly() {
+            // tryClaim reported a conflict, so a row must exist. If it cannot be read, something
+            // other than a key collision went wrong and guessing would hide it.
+            loseTheRace(null);
+
+            assertThatThrownBy(() -> handler.handle(command()))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("conflicted");
         }
     }
 
