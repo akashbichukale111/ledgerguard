@@ -330,14 +330,14 @@ npm run preview
 
 ### Test Suite Overview
 
-**252 unit tests, 0 failures** — the figure `mvn verify -DskipITs` prints today. Includes jqwik
+**254 unit tests + 28 integration tests, 0 failures** — unit counts from `mvn verify -DskipITs`
+locally; the integration tests execute on CI against real Testcontainers Postgres and Kafka
+(`WritePathIT` 10, `SagaOrchestratorIT` 13, `AuditChainIT` 3, `ProjectionIT` 2). Includes jqwik
 property tests over the reconciliation engine, an ArchUnit layer check, and Kafka event schema
 contract tests.
 
-**4 integration tests** (`*IT`, Testcontainers) exist and compile: `WritePathIT`,
-`SagaOrchestratorIT`, `ProjectionIT`, `AuditChainIT`. They require a Docker daemon and **have not
-yet been executed** — their status is unknown, not passing. The first CI run on a Docker-capable
-runner is their real gate.
+The 4 integration test classes require a Docker daemon, so they are skipped locally and run on
+CI. All four pass. All five container images build and are Trivy-scanned on CI as well.
 
 See [phase-17](docs/phase-reports/phase-17.md) for the current gap list.
 
