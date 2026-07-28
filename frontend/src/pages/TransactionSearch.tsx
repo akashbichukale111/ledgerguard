@@ -78,8 +78,8 @@ export default function TransactionSearch() {
                     <td>
                       {tx.amount} {tx.currency}
                     </td>
-                    <td>{new Date(tx.timestamp).toLocaleString()}</td>
-                    <td className="trace-id">{tx.traceId}</td>
+                    <td>{new Date(tx.occurredAt).toLocaleString()}</td>
+                    <td className="trace-id">{tx.reference}</td>
                   </tr>
                 ))}
               </tbody>
@@ -108,25 +108,23 @@ export default function TransactionSearch() {
             </div>
             <div className="detail-group">
               <label>Timestamp:</label>
-              <span>{new Date(selectedTx.timestamp).toLocaleString()}</span>
+              <span>{new Date(selectedTx.occurredAt).toLocaleString()}</span>
             </div>
             <div className="detail-group">
               <label>Correlation ID:</label>
               <span className="monospace">{selectedTx.correlationId}</span>
             </div>
             <div className="detail-group">
-              <label>Trace ID:</label>
-              <span className="monospace">{selectedTx.traceId}</span>
+              <label>Reference:</label>
+              <span className="monospace">{selectedTx.reference}</span>
             </div>
-            <div className="detail-actions">
-              <a
-                href={`http://localhost:9411/zipkin/traces/${selectedTx.traceId}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="action-link"
-              >
-                View in Zipkin →
-              </a>
+            <div className="detail-group">
+              <label>Lifecycle:</label>
+              <span>
+                {selectedTx.timeline?.length
+                  ? selectedTx.timeline.map((step) => step.stage).join(' → ')
+                  : 'no stages recorded'}
+              </span>
             </div>
           </div>
         )}

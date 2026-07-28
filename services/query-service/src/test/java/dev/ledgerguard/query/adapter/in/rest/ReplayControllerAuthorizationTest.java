@@ -66,8 +66,12 @@ class ReplayControllerAuthorizationTest {
 
     @Test
     void adminCanReplayBecauseTheHierarchyIncludesOperations() throws Exception {
+        // ROLE_ADMIN only — no ROLE_OPERATIONS authority. This passes solely because
+        // SecurityConfig declares the role hierarchy; an earlier version of this test granted both
+        // authorities, which hid the fact that the hierarchy was not wired and an administrator
+        // was being denied every endpoint gated below their own rung.
         mockMvc.perform(post(ENDPOINT)
-                        .with(user("admin").authorities(Role.ADMIN::getSpringRole, Role.OPERATIONS::getSpringRole))
+                        .with(user("admin").authorities(Role.ADMIN::getSpringRole))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(BODY))
                 .andExpect(status().isOk());

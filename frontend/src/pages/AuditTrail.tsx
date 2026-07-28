@@ -52,13 +52,13 @@ export default function AuditTrail() {
         ) : (
           <div className="timeline">
             {entries.map((entry) => (
-              <div key={entry.id} className="timeline-item">
+              <div key={entry.chainIndex} className="timeline-item">
                 <div className="timeline-marker"></div>
                 <div className="timeline-content">
                   <div className="entry-header">
                     <span className="action-badge">{entry.action}</span>
                     <span className="timestamp">
-                      {new Date(entry.timestamp).toLocaleString()}
+                      {new Date(entry.occurredAt).toLocaleString()}
                     </span>
                   </div>
                   <div className="entry-body">
@@ -67,13 +67,21 @@ export default function AuditTrail() {
                         <strong>Actor:</strong> {entry.actor}
                       </span>
                       <span className="meta-item">
-                        <strong>Type:</strong> {entry.eventType}
+                        <strong>Service:</strong> {entry.service}
+                      </span>
+                      <span className="meta-item">
+                        <strong>Outcome:</strong> {entry.outcome}
                       </span>
                       <span className="meta-item">
                         <strong>Aggregate:</strong> {entry.aggregateId}
                       </span>
                     </div>
-                    <div className="entry-details">{entry.details}</div>
+                    <div className="entry-details">
+                      {/* The chain index and record hash are what make tampering detectable;
+                          showing them is the point of an audit view. */}
+                      <span className="monospace">#{entry.chainIndex}</span>{' '}
+                      <span className="monospace">{entry.recordHash?.slice(0, 16)}…</span>
+                    </div>
                   </div>
                 </div>
               </div>

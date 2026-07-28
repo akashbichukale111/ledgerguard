@@ -92,3 +92,15 @@
   border-left-color: var(--error-color);
   color: #991b1b;
 }
+
+/* Caveat under the metric grid: says what the numbers are based on, so a sampled figure is not
+   read as an exhaustive one. */
+.metrics-note {
+  margin: 1rem 0 1.5rem;
+  padding: 0.75rem 1rem;
+  border-left: 3px solid var(--color-border, #d0d7de);
+  background: var(--color-surface-muted, #f6f8fa);
+  color: var(--color-text-muted, #57606a);
+  font-size: 0.875rem;
+  line-height: 1.5;
+}

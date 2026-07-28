@@ -53,7 +53,10 @@ java -jar services/reconciliation-service/target/reconciliation-service-0.1.0-SN
 # Terminal 3: Query Service
 java -jar services/query-service/target/query-service-0.1.0-SNAPSHOT.jar
 
-# 5. Start frontend (Terminal 4)
+# Terminal 4: Auth Server (the console's login calls this)
+java -jar services/auth-server/target/auth-server-0.1.0-SNAPSHOT.jar
+
+# 5. Start frontend (Terminal 5)
 cd frontend && npm ci && npm run dev
 
 # 6. Access UI
@@ -160,7 +163,7 @@ docker-compose -f docker-compose-full.yml down
 - **Responsibility**: Accept and persist incoming transactions
 - **Technology**: Spring Boot, PostgreSQL, Kafka
 - **Port**: 8081 (Docker) / 8080 (direct)
-- **Key Endpoint**: `POST /api/v1/transactions/ingest`
+- **Key Endpoint**: `POST /api/v1/transactions` (requires an `Idempotency-Key` header)
 
 #### Reconciliation Service
 - **Responsibility**: Match transactions using business rules
@@ -327,7 +330,7 @@ npm run preview
 
 ### Test Suite Overview
 
-**215 unit tests, 0 failures** — the figure `mvn verify -DskipITs` prints today. Includes jqwik
+**252 unit tests, 0 failures** — the figure `mvn verify -DskipITs` prints today. Includes jqwik
 property tests over the reconciliation engine, an ArchUnit layer check, and Kafka event schema
 contract tests.
 
@@ -336,8 +339,7 @@ contract tests.
 yet been executed** — their status is unknown, not passing. The first CI run on a Docker-capable
 runner is their real gate.
 
-`transaction-service` currently has no unit tests. See
-[phase-16](docs/phase-reports/phase-16-audit-and-remediation.md) for the full gap list.
+See [phase-17](docs/phase-reports/phase-17.md) for the current gap list.
 
 ### Running Performance Tests
 
@@ -378,29 +380,39 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development guidelines including:
 ### Transaction Ingestion
 
 ```bash
-POST /api/v1/transactions/ingest
+POST /api/v1/transactions
+Idempotency-Key: <required, unique per instruction>
 
 {
-  "transactionId": "tx-12345",
+  "reference": "REF-12345",
   "amount": "1234.56",
   "currency": "USD",
-  "counterparty": "Bank of America",
-  "timestamp": "2024-01-15T10:30:00Z"
+  "direction": "DEBIT",
+  "counterpartyId": "cp-1",
+  "debitAccount": "acct-debit-1",
+  "creditAccount": "acct-credit-1",
+  "valueDate": "2026-01-15",
+  "settlementSystem": "SEPA"
 }
 ```
+
+The `Idempotency-Key` header is required, not optional: without it a client retry after a timeout
+creates a second financial instruction and the client cannot tell that it did. Amounts are strings
+end to end — a JSON number would lose exactness at the browser boundary.
 
 ### Transaction Search
 
 ```bash
-GET /api/v1/transactions/search?query=12345&limit=10
+GET /api/v1/transactions/search?q=REF-12345&limit=10
 
 Response: [{
-  "transactionId": "tx-12345",
-  "status": "MATCHED",
+  "transactionId": "0193...",
+  "status": "RECEIVED",
   "amount": "1234.56",
   "currency": "USD",
-  "timestamp": "2024-01-15T10:30:00Z",
-  "correlationId": "corr-xyz"
+  "reference": "REF-12345",
+  "occurredAt": "2026-01-15T10:30:00Z",
+  "correlationId": "..."
 }]
 ```
 
@@ -425,13 +437,16 @@ Response: {
 GET /api/v1/metrics/dashboard
 
 Response: {
-  "projectionLag": 234,      # milliseconds
-  "dltDepth": 42,            # message count
-  "consumerLag": 5,          # partition lag
-  "transactionRate": 125.5,  # txn/sec
-  "matchRate": 99.2,         # percentage
-  "errorRate": 0.3           # percentage
+  "projectionLagMillis": 234,    # worst gap in the sample
+  "dltDepth": 42,                # dead letters not yet replayed
+  "transactionCount": 1500,      # in the read model
+  "transactionsLastHour": 120,   # within the sample
+  "auditChainLength": 3200,
+  "sampleSize": 200              # what the sampled figures are based on
 }
+
+Consumer lag, match rate and error rate are deliberately absent — nothing in this service can
+measure them yet. See docs/phase-reports/phase-17.md.
 ```
 
 ## Observability
@@ -483,10 +498,12 @@ Response: [{
 ### Authentication
 
 > **Current state:** HTTP Basic against an in-memory user store, one user per role
-> (`admin`/`admin`, `operations`/`operations`, `analyst`/`analyst`, `user`/`user`). There is no
-> JWT issuance and no authorization server — `services/auth-server` is an empty module, and the
-> `/api/v1/auth/login` endpoint the console calls is not implemented. See
-> [phase-16](docs/phase-reports/phase-16-audit-and-remediation.md).
+> (`admin`/`admin`, `operations`/`operations`, `analyst`/`analyst`, `user`/`user`).
+>
+> `POST /api/v1/auth/login` on the auth server verifies those credentials and returns the caller's
+> roles — but what it returns is **not a token**: it is the Basic credential itself, base64-encoded,
+> with no expiry, no signature and no revocation. The console keeps it in `localStorage` and replays
+> it. Fine for a local demo, not for production. See [phase-17](docs/phase-reports/phase-17.md).
 
 Authorization itself is real and enforced: `@EnableMethodSecurity` is wired, `@PreAuthorize`
 rejects the wrong role, and `RbacMatrix` is consulted against the authenticated principal.

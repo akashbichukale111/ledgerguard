@@ -12,8 +12,14 @@ BLUE='\033[0;34m'
 NC='\033[0m'
 
 # Configuration
-API_BASE_URL="${API_BASE_URL:-http://localhost:8080/api/v1}"
-AUTH_TOKEN="${AUTH_TOKEN:-test-jwt-token}"
+API_BASE_URL="${API_BASE_URL:-http://localhost:8083/api/v1}"
+AUTH_BASE_URL="${AUTH_BASE_URL:-http://localhost:8084/api/v1}"
+# Ingestion is the write side and lives on transaction-service, not the query service.
+WRITE_BASE_URL="${WRITE_BASE_URL:-http://localhost:8081/api/v1}"
+# Credentials, not a token: the services accept HTTP Basic. See docs/phase-reports/phase-17.md.
+DEMO_USER="${DEMO_USER:-operations}"
+DEMO_PASSWORD="${DEMO_PASSWORD:-operations}"
+AUTH_TOKEN=""
 DEMO_SPEED="${DEMO_SPEED:-1}"  # Seconds between requests
 
 # Helper functions
@@ -44,16 +50,38 @@ call_api() {
 
   if [ -z "$data" ]; then
     curl -s -X "$method" \
-      -H "Authorization: Bearer $AUTH_TOKEN" \
+      -H "Authorization: Basic $AUTH_TOKEN" \
       -H "Content-Type: application/json" \
       "$API_BASE_URL$endpoint"
   else
     curl -s -X "$method" \
-      -H "Authorization: Bearer $AUTH_TOKEN" \
+      -H "Authorization: Basic $AUTH_TOKEN" \
       -H "Content-Type: application/json" \
       -d "$data" \
       "$API_BASE_URL$endpoint"
   fi
+}
+
+# Exchanges username and password for the Basic credential the API expects.
+demo_login() {
+  log_section "Signing in"
+
+  local response
+  response=$(curl -s -X POST \
+    -H "Content-Type: application/json" \
+    -d "{\"username\":\"$DEMO_USER\",\"password\":\"$DEMO_PASSWORD\"}" \
+    "$AUTH_BASE_URL/auth/login")
+
+  AUTH_TOKEN=$(echo "$response" | jq -r '.token // empty')
+
+  if [ -z "$AUTH_TOKEN" ]; then
+    log_error "Login failed for user '$DEMO_USER'"
+    log_info "Response: $response"
+    exit 1
+  fi
+
+  log_success "Signed in as $DEMO_USER ($(echo "$response" | jq -r '.user.roles[0]'))"
+  pause
 }
 
 # Check prerequisites
@@ -73,45 +101,105 @@ check_prerequisites() {
   log_success "jq installed"
 
   # Check API connectivity
-  if ! curl -s -f "$API_BASE_URL/metrics/dashboard" \
-    -H "Authorization: Bearer $AUTH_TOKEN" > /dev/null 2>&1; then
-    log_error "Cannot reach API at $API_BASE_URL"
-    log_info "Make sure services are running (docker-compose up -d)"
+  if ! curl -s -f "$AUTH_BASE_URL/../actuator/health" > /dev/null 2>&1 \
+     && ! curl -s -o /dev/null "$AUTH_BASE_URL/auth/login"; then
+    log_error "Cannot reach the auth server at $AUTH_BASE_URL"
+    log_info "Make sure services are running (docker compose -f docker-compose-full.yml up -d)"
     exit 1
   fi
-  log_success "API is reachable at $API_BASE_URL"
+  log_success "Auth server reachable at $AUTH_BASE_URL"
+  log_info "API base is $API_BASE_URL"
 }
 
 # Demo: Transaction Ingestion
 demo_ingestion() {
   log_section "Demo 1: Transaction Ingestion"
 
-  local tx_id="demo-tx-$(date +%s)"
-  local amount="1234.56"
+  local reference="DEMO-$(date +%s)"
+  # Idempotency-Key is required, not optional: without it a client retry after a timeout would
+  # create a second financial instruction.
+  local idempotency_key="demo-$(date +%s)-$RANDOM"
 
-  log_info "Ingesting transaction: $tx_id"
+  log_info "Submitting transaction: $reference"
 
-  local payload=$(cat <<EOF
+  local payload
+  payload=$(cat <<EOF
 {
-  "transactionId": "$tx_id",
-  "amount": "$amount",
+  "reference": "$reference",
+  "amount": "1234.56",
   "currency": "USD",
-  "counterparty": "Bank of America",
-  "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  "direction": "DEBIT",
+  "counterpartyId": "cp-demo",
+  "debitAccount": "acct-debit-1",
+  "creditAccount": "acct-credit-1",
+  "valueDate": "$(date -u +%Y-%m-%d)",
+  "settlementSystem": "SEPA"
 }
 EOF
 )
 
-  local response=$(call_api POST "/transactions/ingest" "$payload")
+  local response
+  response=$(curl -s -X POST \
+    -H "Authorization: Basic $AUTH_TOKEN" \
+    -H "Content-Type: application/json" \
+    -H "Idempotency-Key: $idempotency_key" \
+    -d "$payload" \
+    "$WRITE_BASE_URL/transactions")
 
   echo "$response" | jq '.' 2>/dev/null || echo "$response"
 
-  if echo "$response" | grep -q "$tx_id"; then
-    log_success "Transaction ingested successfully"
-    INGESTED_TX_ID="$tx_id"
+  INGESTED_TX_ID=$(echo "$response" | jq -r '.transactionId // empty')
+  if [ -n "$INGESTED_TX_ID" ]; then
+    log_success "Accepted as $INGESTED_TX_ID"
+    DEMO_REFERENCE="$reference"
+    DEMO_IDEMPOTENCY_KEY="$idempotency_key"
   else
-    log_error "Transaction ingestion failed"
+    log_error "Ingestion failed"
     log_info "Response: $response"
+  fi
+
+  pause
+}
+
+# Demo: Idempotent replay — the same key must not create a second instruction.
+demo_idempotency() {
+  log_section "Demo 2: Idempotent Replay"
+
+  if [ -z "${DEMO_IDEMPOTENCY_KEY:-}" ]; then
+    log_error "Nothing to replay (ingestion did not succeed)"
+    return
+  fi
+
+  log_info "Resubmitting with the same Idempotency-Key"
+
+  local payload
+  payload=$(cat <<EOF
+{
+  "reference": "$DEMO_REFERENCE",
+  "amount": "1234.56",
+  "currency": "USD",
+  "direction": "DEBIT",
+  "counterpartyId": "cp-demo",
+  "debitAccount": "acct-debit-1",
+  "creditAccount": "acct-credit-1",
+  "valueDate": "$(date -u +%Y-%m-%d)",
+  "settlementSystem": "SEPA"
+}
+EOF
+)
+
+  local replay_id
+  replay_id=$(curl -s -X POST \
+    -H "Authorization: Basic $AUTH_TOKEN" \
+    -H "Content-Type: application/json" \
+    -H "Idempotency-Key: $DEMO_IDEMPOTENCY_KEY" \
+    -d "$payload" \
+    "$WRITE_BASE_URL/transactions" | jq -r '.transactionId // empty')
+
+  if [ "$replay_id" = "$INGESTED_TX_ID" ]; then
+    log_success "Same transaction returned ($replay_id) — no duplicate created"
+  else
+    log_error "Replay produced a different id: $replay_id"
   fi
 
   pause
@@ -126,13 +214,15 @@ demo_search() {
     return
   fi
 
-  log_info "Searching for transaction: $INGESTED_TX_ID"
+  log_info "Searching for reference: $DEMO_REFERENCE"
 
-  local response=$(call_api GET "/transactions/search?query=$INGESTED_TX_ID&limit=10")
+  log_info "The read model is eventually consistent; giving the projection a moment"
+  sleep 2
+  local response=$(call_api GET "/transactions/search?q=$DEMO_REFERENCE&limit=10")
 
   echo "$response" | jq '.' 2>/dev/null || echo "$response"
 
-  if echo "$response" | grep -q "$INGESTED_TX_ID"; then
+  if echo "$response" | grep -q "$DEMO_REFERENCE"; then
     log_success "Transaction found in search results"
   else
     log_error "Transaction not found in search results"
@@ -156,7 +246,7 @@ demo_transaction_360() {
 
   echo "$response" | jq '.' 2>/dev/null || echo "$response"
 
-  if echo "$response" | grep -q "PENDING\|MATCHED"; then
+  if echo "$response" | grep -q "RECEIVED"; then
     log_success "Transaction 360 view retrieved"
   else
     log_info "Note: Transaction status may not be available immediately"
@@ -174,11 +264,12 @@ demo_metrics() {
   local response=$(call_api GET "/metrics/dashboard")
 
   echo "$response" | jq '{
-    projectionLag: .projectionLag,
-    dltDepth: .dltDepth,
-    transactionRate: .transactionRate,
-    matchRate: .matchRate,
-    errorRate: .errorRate
+    projectionLagMillis,
+    dltDepth,
+    transactionCount,
+    transactionsLastHour,
+    auditChainLength,
+    sampleSize
   }' 2>/dev/null || echo "$response"
 
   log_success "Metrics retrieved"
@@ -194,11 +285,12 @@ demo_audit_trail() {
 
   local response=$(call_api GET "/audit/entries?limit=5")
 
-  echo "$response" | jq 'sort_by(.timestamp) | reverse | .[0:3] | .[] | {
-    timestamp,
+  echo "$response" | jq 'sort_by(.chainIndex) | reverse | .[0:3] | .[] | {
+    chainIndex,
+    occurredAt,
     actor,
     action,
-    aggregateId
+    outcome
   }' 2>/dev/null || echo "$response"
 
   log_success "Audit trail retrieved"
@@ -248,22 +340,21 @@ demo_pagination() {
   pause
 }
 
-# Demo: Reconciliation Status
-demo_reconciliation() {
-  log_section "Demo 8: Reconciliation Status"
+# Demo: Lifecycle — the hops the projection recorded for this transaction.
+demo_lifecycle() {
+  log_section "Demo 8: Transaction Lifecycle"
 
   if [ -z "$INGESTED_TX_ID" ]; then
-    log_error "No transaction to reconcile (run ingestion demo first)"
+    log_error "No transaction to inspect (ingestion did not succeed)"
     return
   fi
 
-  log_info "Checking reconciliation status for: $INGESTED_TX_ID"
+  log_info "Fetching lifecycle for: $INGESTED_TX_ID"
 
-  local response=$(call_api GET "/transactions/$INGESTED_TX_ID/reconciliation")
-
+  local response=$(call_api GET "/transactions/$INGESTED_TX_ID/lifecycle")
   echo "$response" | jq '.' 2>/dev/null || echo "$response"
 
-  log_info "Note: Reconciliation may be in progress or pending"
+  log_info "Stages appear as each service publishes its event"
 
   pause
 }
@@ -350,15 +441,17 @@ EOF
   echo -e "${NC}\n"
 
   check_prerequisites
+  demo_login
 
   demo_ingestion
+  demo_idempotency
   demo_search
   demo_transaction_360
   demo_metrics
   demo_audit_trail
   demo_dlt_explorer
   demo_pagination
-  demo_reconciliation
+  demo_lifecycle
 
   show_summary
 }

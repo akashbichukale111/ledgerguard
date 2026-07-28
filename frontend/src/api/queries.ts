@@ -1,13 +1,33 @@
 import client from './client'
 
+/**
+ * Types mirror what the query-service controllers actually return. Where a field the console
+ * once expected has no source behind it, it is absent here rather than optional — an optional
+ * field invites a component to render a blank where there is no measurement at all.
+ */
+
+export interface LifecycleStep {
+  stage: string
+  service: string
+  occurredAt: string
+  processedAt: string
+  status: string
+  detail: string
+}
+
 export interface Transaction {
   transactionId: string
-  status: 'PENDING' | 'MATCHED' | 'FAILED'
+  /** Projection status. Free-form: it follows the event stream, not a closed enum. */
+  status: string
   amount: string
   currency: string
-  timestamp: string
-  correlationId: string
-  traceId: string
+  reference: string
+  direction: string
+  counterpartyId: string
+  occurredAt: string
+  updatedAt: string
+  correlationId: string | null
+  timeline: LifecycleStep[]
 }
 
 export interface DltMessage {
@@ -16,32 +36,46 @@ export interface DltMessage {
   partition: number
   offset: number
   reason: string
-  stackTraceDigest: string
+  stackTraceDigest: string | null
+  attemptCount: number
+  firstFailedAt: string | null
   timestamp: string
+  replayedAt: string | null
   originalEnvelope: string
 }
 
 export interface AuditEntry {
-  id: string
-  timestamp: string
+  chainIndex: number
+  eventId: string
+  occurredAt: string
   actor: string
+  actorRole: string
   action: string
-  aggregateId: string
-  eventType: string
-  details: string
+  service: string
+  aggregateType: string | null
+  aggregateId: string | null
+  outcome: string
   correlationId: string
+  recordHash: string
 }
 
+/**
+ * Dashboard figures.
+ *
+ * Consumer lag, match rate and error rate are deliberately absent: the service has no Kafka
+ * admin client for the first, and no terminal transaction outcome to divide by for the other
+ * two. See DashboardMetricsService.
+ */
 export interface DashboardMetrics {
-  projectionLag: number
+  projectionLagMillis: number
   dltDepth: number
-  consumerLag: number
-  transactionRate: number
-  matchRate: number
-  errorRate: number
+  transactionCount: number
+  transactionsLastHour: number
+  auditChainLength: number
+  /** How many documents the lag and window figures were computed from. */
+  sampleSize: number
 }
 
-// Transaction queries
 export const transactionApi = {
   search: (query: string, limit: number = 50) =>
     client.get<Transaction[]>('/transactions/search', {
@@ -52,10 +86,12 @@ export const transactionApi = {
     client.get<Transaction>(`/transactions/${transactionId}`),
 
   getLifecycle: (transactionId: string) =>
-    client.get(`/transactions/${transactionId}/lifecycle`),
+    client.get<LifecycleStep[]>(`/transactions/${transactionId}/lifecycle`),
+
+  byCorrelation: (correlationId: string) =>
+    client.get<Transaction[]>(`/transactions/by-correlation/${correlationId}`),
 }
 
-// DLT queries
 export const dltApi = {
   list: (limit: number = 20, offset: number = 0) =>
     client.get<DltMessage[]>('/replay/dlt-messages', {
@@ -63,10 +99,11 @@ export const dltApi = {
     }),
 
   replay: (originalEnvelope: string) =>
-    client.post('/replay/dlt-message', { originalEnvelope }),
+    client.post<{ causationId: string; message: string }>('/replay/dlt-message', {
+      originalEnvelope,
+    }),
 }
 
-// Audit trail
 export const auditApi = {
   search: (correlationId?: string, actor?: string, limit: number = 50) =>
     client.get<AuditEntry[]>('/audit/entries', {
@@ -75,9 +112,10 @@ export const auditApi = {
 
   getByCorrelationId: (correlationId: string) =>
     client.get<AuditEntry[]>(`/audit/entries/${correlationId}`),
+
+  verify: () => client.get('/audit/verify'),
 }
 
-// Metrics
 export const metricsApi = {
   dashboard: () => client.get<DashboardMetrics>('/metrics/dashboard'),
 
