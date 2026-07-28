@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ledgerguard.dev/schemas/TransactionReceived/v2.json",
+  "title": "TransactionReceived",
+  "description": "v2 adds settlement metadata. Both new fields are OPTIONAL and postingDate widens to accept null, so a v1 producer's message still validates and a v1 consumer still finds every field it knows. This is the shape a backward-compatible change must have.",
+  "type": "object",
+  "required": ["transactionId", "reference", "amount", "currency", "valueDate", "counterpartyId", "direction"],
+  "properties": {
+    "transactionId": { "type": "string", "format": "uuid" },
+    "reference": { "type": "string", "minLength": 1, "maxLength": 140 },
+    "amount": {
+      "type": "string",
+      "pattern": "^-?[0-9]+(\\.[0-9]+)?$",
+      "description": "Decimal STRING, never a JSON number. See ADR-0009."
+    },
+    "currency": { "type": "string", "pattern": "^[A-Z]{3}$" },
+    "valueDate": { "type": "string", "format": "date" },
+    "counterpartyId": { "type": "string", "minLength": 1 },
+    "direction": { "type": "string", "enum": ["DEBIT", "CREDIT"] },
+
+    "postingDate": {
+      "type": ["string", "null"], "format": "date",
+      "description": "ADDED in v2, optional. Upcasting a v1 message defaults this to valueDate."
+    },
+    "settlementSystem": {
+      "type": ["string", "null"], "maxLength": 64,
+      "description": "ADDED in v2, optional. Null for v1 messages: the information was genuinely not captured, and inventing a default would be worse than a null."
+    }
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ledgerguard.dev/schemas/TransactionReceived/v1.json",
+  "title": "TransactionReceived",
+  "description": "A transaction instruction has been accepted and durably persisted. Emitted by transaction-service via the transactional outbox.",
+  "type": "object",
+  "required": ["transactionId", "reference", "amount", "currency", "valueDate", "counterpartyId", "direction"],
+  "properties": {
+    "transactionId": { "type": "string", "format": "uuid" },
+    "reference": {
+      "type": "string", "minLength": 1, "maxLength": 140,
+      "description": "Counterparty-supplied reference. Normalised before matching, never mutated in place."
+    },
+    "amount": {
+      "type": "string",
+      "pattern": "^-?[0-9]+(\\.[0-9]+)?$",
+      "description": "Decimal STRING, never a JSON number. JSON.parse yields an IEEE-754 double and would destroy the value at the browser boundary. See ADR-0009."
+    },
+    "currency": { "type": "string", "pattern": "^[A-Z]{3}$" },
+    "valueDate": { "type": "string", "format": "date" },
+    "counterpartyId": { "type": "string", "minLength": 1 },
+    "direction": { "type": "string", "enum": ["DEBIT", "CREDIT"] }
+  }
+}

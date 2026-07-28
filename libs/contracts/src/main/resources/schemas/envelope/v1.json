@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ledgerguard.dev/schemas/envelope/v1.json",
+  "title": "EventEnvelope",
+  "description": "Wrapper carried by every Kafka message in LedgerGuard. The envelope is what makes tracing, causality, idempotency, and schema evolution possible; the payload alone would not.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "eventId", "eventType", "eventVersion", "aggregateType", "aggregateId",
+    "sequenceNumber", "occurredAt", "recordedAt", "correlationId", "actor",
+    "schemaRef", "payload"
+  ],
+  "properties": {
+    "eventId": {
+      "type": "string", "format": "uuid",
+      "description": "UUIDv7. The consumer dedupe key: (consumerGroup, eventId) is unique."
+    },
+    "eventType": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "eventVersion": { "type": "integer", "minimum": 1 },
+    "aggregateType": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "aggregateId": {
+      "type": "string", "format": "uuid",
+      "description": "The Kafka partition key. This is what gives per-aggregate ordering; there is no global ordering."
+    },
+    "sequenceNumber": { "type": "integer", "minimum": 0 },
+    "occurredAt": {
+      "type": "string", "format": "date-time",
+      "description": "Business/event time, UTC."
+    },
+    "recordedAt": {
+      "type": "string", "format": "date-time",
+      "description": "Persistence time, UTC. occurredAt to recordedAt is the ingestion delay."
+    },
+    "correlationId": {
+      "type": "string", "format": "uuid",
+      "description": "One business flow, end to end. Minted at the gateway if absent."
+    },
+    "causationId": {
+      "type": ["string", "null"], "format": "uuid",
+      "description": "The eventId or commandId that DIRECTLY caused this event. Null for flow roots."
+    },
+    "actor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["subject", "role", "source"],
+      "properties": {
+        "subject": { "type": "string", "minLength": 1 },
+        "role": { "type": "string", "enum": ["AUDITOR", "ANALYST", "OPERATIONS", "ADMIN", "SYSTEM"] },
+        "source": { "type": "string", "enum": ["API", "KAFKA", "SCHEDULER", "REPLAY"] }
+      }
+    },
+    "traceparent": {
+      "type": ["string", "null"],
+      "pattern": "^[0-9a-f]{2}-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$",
+      "description": "W3C trace context. Propagated across the broker hop so one traceId spans all services."
+    },
+    "schemaRef": {
+      "type": "string", "minLength": 1,
+      "description": "Path to the JSON Schema validating payload, e.g. schemas/TransactionReceived/v2.json"
+    },
+    "payload": { "type": "object" }
+  }
+}

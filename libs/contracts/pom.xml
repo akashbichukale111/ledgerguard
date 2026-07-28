@@ -10,4 +10,12 @@
 
   <artifactId>contracts</artifactId>
   <description>Versioned event envelope and JSON Schema definitions. The single source of truth for every message crossing a service boundary.</description>
+
+  <dependencies>
+    <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-databind</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
 </project>
