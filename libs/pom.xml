@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>dev.ledgerguard</groupId>
+    <artifactId>ledgerguard-parent</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+  </parent>
+
+  <artifactId>ledgerguard-libs</artifactId>
+  <packaging>pom</packaging>
+  <description>Shared libraries. These are Maven modules, not deployable services: no module here opens a port or owns a datastore.</description>
+
+  <modules>
+    <module>contracts</module>
+    <module>common-core</module>
+    <module>common-kafka</module>
+    <module>common-observability</module>
+    <module>common-security</module>
+  </modules>
+</project>
