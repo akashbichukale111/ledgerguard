@@ -1,45 +1,32 @@
-# Multi-stage build: Node.js build stage, Nginx runtime stage
+# Build stage.
 FROM node:20-alpine AS build
 
 WORKDIR /build
 
-# Copy package files
-COPY package*.json ./
-
-# Install dependencies
+# package-lock.json is required by `npm ci` and is committed for exactly this reason — an
+# earlier revision called `npm ci` with no lockfile in the repository, which always fails.
+COPY package.json package-lock.json ./
 RUN npm ci
 
-# Copy source code
 COPY . .
-
-# Build production bundle
 RUN npm run build
 
-# Runtime stage: Nginx serving static SPA
+# Runtime stage: static assets served by nginx.
 FROM nginx:1.27-alpine
 
-# Security: Remove default Nginx config
 RUN rm /etc/nginx/conf.d/default.conf
-
-# Copy custom Nginx configuration
 COPY nginx.conf /etc/nginx/conf.d/default.conf
-
-# Copy built React app from build stage
 COPY --from=build /build/dist /usr/share/nginx/html
 
-# Security: Create unprivileged user and set permissions
-RUN chown -R nginx:nginx /usr/share/nginx/html && \
-    chmod -R 755 /usr/share/nginx/html
+RUN chown -R nginx:nginx /usr/share/nginx/html && chmod -R 555 /usr/share/nginx/html
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
-    CMD wget -q -O- http://localhost:80/index.html || exit 1
-
-# Expose port (documentation only)
 EXPOSE 80
 
-# Run as nginx user (already unprivileged)
-USER nginx
+HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
+    CMD wget -q -O- http://localhost/ >/dev/null || exit 1
 
-# Start Nginx
+# The container is deliberately left on the stock nginx entrypoint: the master process needs
+# root to bind :80 and write the pid file, and drops its workers to the unprivileged `nginx`
+# user on its own. Forcing `USER nginx` here breaks startup. Running rootless would mean
+# switching to nginxinc/nginx-unprivileged and an above-1024 port — deferred, see phase-16.
 CMD ["nginx", "-g", "daemon off;"]

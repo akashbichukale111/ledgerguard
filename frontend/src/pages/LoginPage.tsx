@@ -21,7 +21,9 @@ export default function LoginPage() {
       } else {
         setError('Invalid username or password')
       }
-    } catch (err) {
+    } catch {
+      // The reason is deliberately not surfaced: a failed login must not reveal whether the
+      // username exists, the password was wrong, or the service is down.
       setError('Login failed. Please try again.')
     } finally {
       setLoading(false)

@@ -1,42 +1,37 @@
-# Multi-stage build: compile and package in build stage, run in minimal runtime stage
-FROM eclipse-temurin:21-jdk-alpine AS build
+# Build stage. The base image must carry Maven — an earlier revision of this file ran `mvn`
+# inside a plain JDK image, where it does not exist, so the build could never have succeeded.
+# The whole reactor is copied because `-am` needs the sibling library modules on disk.
+FROM maven:3.9-eclipse-temurin-21 AS build
 
 WORKDIR /build
-
-# Copy Maven POM files
 COPY pom.xml .
-COPY libs libs/
-COPY services/transaction-service services/transaction-service/
+COPY libs libs
+COPY services services
 
-# Build the application
 RUN --mount=type=cache,target=/root/.m2 \
-    mvn clean package -f services/transaction-service/pom.xml -DskipTests -q
+    mvn -B -q -pl services/transaction-service -am package -DskipTests -Dspotless.check.skip=true
 
-# Runtime stage: minimal image
+# Runtime stage: JRE only, so the compiler and build tooling are not shipped.
 FROM eclipse-temurin:21-jre-alpine
 
-# Security: Create unprivileged user for application
-RUN addgroup -g 1000 appuser && \
-    adduser -D -u 1000 -G appuser appuser
+# wget backs the HEALTHCHECK below; busybox provides it on Alpine, but be explicit.
+RUN apk add --no-cache wget \
+    && addgroup -g 1000 appuser \
+    && adduser -D -u 1000 -G appuser appuser
 
 WORKDIR /app
+COPY --from=build --chown=appuser:appuser /build/services/transaction-service/target/transaction-service-*.jar app.jar
 
-# Copy JAR from build stage
-COPY --from=build --chown=appuser:appuser /build/services/transaction-service/target/transaction-service-0.1.0-SNAPSHOT.jar app.jar
+# Read-only jar, directory not writable by the runtime user.
+RUN chmod 440 app.jar && chmod 550 /app
 
-# Security: Set restrictive file permissions
-RUN chmod 500 app.jar && \
-    chmod 700 /app
+USER appuser
+EXPOSE 8080
 
-# Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
     CMD wget -q -O- http://localhost:8080/actuator/health || exit 1
 
-# Security: Drop capabilities, run as unprivileged user
-USER appuser
-
-# Expose port (documentation only, doesn't open port)
-EXPOSE 8080
-
-# Run application
-ENTRYPOINT ["java", "-XX:+UseG1GC", "-XX:MaxRAMPercentage=75.0", "-Dspring.profiles.active=docker", "-jar", "app.jar"]
+# MaxRAMPercentage reads the container memory limit rather than the host's, so the heap
+# stays inside the cgroup budget.
+ENTRYPOINT ["java", "-XX:+UseG1GC", "-XX:MaxRAMPercentage=75.0", \
+            "-Dspring.profiles.active=docker", "-jar", "app.jar"]

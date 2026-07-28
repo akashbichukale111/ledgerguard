@@ -327,11 +327,17 @@ npm run preview
 
 ### Test Suite Overview
 
-- **44 Unit Tests**: Isolated component testing (no external dependencies)
-- **5 Integration Tests**: End-to-end flows using Testcontainers
-- **6 Property-Based Tests**: jqwik (random input invariant verification)
-- **1 Architecture Test**: ArchUnit layer validation
-- **2 Contract Tests**: Kafka event schema compatibility
+**215 unit tests, 0 failures** — the figure `mvn verify -DskipITs` prints today. Includes jqwik
+property tests over the reconciliation engine, an ArchUnit layer check, and Kafka event schema
+contract tests.
+
+**4 integration tests** (`*IT`, Testcontainers) exist and compile: `WritePathIT`,
+`SagaOrchestratorIT`, `ProjectionIT`, `AuditChainIT`. They require a Docker daemon and **have not
+yet been executed** — their status is unknown, not passing. The first CI run on a Docker-capable
+runner is their real gate.
+
+`transaction-service` currently has no unit tests. See
+[phase-16](docs/phase-reports/phase-16-audit-and-remediation.md) for the full gap list.
 
 ### Running Performance Tests
 
@@ -476,12 +482,15 @@ Response: [{
 
 ### Authentication
 
-Endpoints require JWT token in `Authorization: Bearer <token>` header.
+> **Current state:** HTTP Basic against an in-memory user store, one user per role
+> (`admin`/`admin`, `operations`/`operations`, `analyst`/`analyst`, `user`/`user`). There is no
+> JWT issuance and no authorization server — `services/auth-server` is an empty module, and the
+> `/api/v1/auth/login` endpoint the console calls is not implemented. See
+> [phase-16](docs/phase-reports/phase-16-audit-and-remediation.md).
 
-Demo credentials (development only):
-- `admin` / `password` (role: ADMIN)
-- `operator` / `password` (role: OPERATIONS)
-- `analyst` / `password` (role: ANALYST)
+Authorization itself is real and enforced: `@EnableMethodSecurity` is wired, `@PreAuthorize`
+rejects the wrong role, and `RbacMatrix` is consulted against the authenticated principal.
+`ReplayControllerAuthorizationTest` covers allow, deny and anonymous cases.
 
 ### Authorization
 
@@ -563,10 +572,14 @@ grep "trace-xyz" logs/app.log | grep "duration"
 See [PERFORMANCE.md](docs/performance-baselines.md) for detailed baseline metrics.
 
 **Summary**:
-- Transaction ingestion: 1000+ txn/s (p95 <500ms)
-- Reconciliation queries: 500+ qps (p95 <1000ms)
-- Projection lag: <5 seconds under normal load
-- E2E flow: <2 seconds (ingest → query → reconcile)
+> **These are targets, not measurements.** No k6 scenario has been executed yet, so there is no
+> observed throughput or latency figure for this system. Treat the numbers below as the thresholds
+> the scenarios in `perf/` will assert against once run.
+
+- Transaction ingestion: target 1000+ txn/s (p95 <500ms)
+- Reconciliation queries: target 500+ qps (p95 <1000ms)
+- Projection lag: target <5 seconds under normal load
+- E2E flow: target <2 seconds (ingest → query → reconcile)
 
 ## Documentation
 

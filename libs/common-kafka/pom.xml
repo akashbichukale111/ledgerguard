@@ -26,5 +26,11 @@
       <groupId>com.fasterxml.jackson.core</groupId>
       <artifactId>jackson-databind</artifactId>
     </dependency>
+    <!-- Instant on the retry envelope: without this module Jackson writes it as an epoch
+         decimal and cannot read it back as an ISO-8601 string. -->
+    <dependency>
+      <groupId>com.fasterxml.jackson.datatype</groupId>
+      <artifactId>jackson-datatype-jsr310</artifactId>
+    </dependency>
   </dependencies>
 </project>

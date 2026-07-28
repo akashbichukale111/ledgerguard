@@ -27,3 +27,6 @@ dist-ssr
 .env
 .env.local
 .env.*.local
+
+# Compiled output must never land next to sources (see tsconfig noEmit).
+src/**/*.js

@@ -9,6 +9,8 @@ import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.kafka.support.Acknowledgment;
 import org.springframework.stereotype.Service;
 
+import dev.ledgerguard.common.kafka.RetryEnvelopeCodec;
+import dev.ledgerguard.common.kafka.RetryPublisher;
 import dev.ledgerguard.common.observability.KafkaTracingConsumer;
 import dev.ledgerguard.common.observability.MdcContext;
 import dev.ledgerguard.query.adapter.out.messaging.RetryPublishingService;
@@ -58,7 +60,21 @@ public class RetryEventConsumer {
             KafkaTracingConsumer.populateMdcFromHeaders(record);
             MdcContext.put(MdcContext.EVENT_TYPE, "retry");
 
-            var originalEnvelope = extractOriginalEnvelope(record.value());
+            String originalEnvelope;
+            try {
+                originalEnvelope = extractOriginalEnvelope(record.value());
+            } catch (Exception parseEx) {
+                // An unreadable retry message cannot be reprocessed, but dropping it loses the
+                // payload for good. Push the raw record to the DLT so an operator can still see and
+                // replay it, then stop — there is nothing to hand the projection.
+                log.error("Failed to parse retry envelope from topic {}: {}", record.topic(), parseEx.getMessage());
+                republish(
+                        record.value(),
+                        RetryPublisher.DLT_ATTEMPT,
+                        "Unparseable retry envelope from " + record.topic(),
+                        parseEx);
+                return;
+            }
 
             log.info("Reprocessing retry from {} (offset={})", record.topic(), record.offset());
 
@@ -69,23 +85,31 @@ public class RetryEventConsumer {
                 } else {
                     log.debug("Retry duplicate or stale: {} skipped (idempotent)", record.topic());
                 }
-            } catch (Throwable ex) {
+            } catch (Exception ex) {
                 log.warn("Retry failed: {}", ex.getMessage());
-                retryPublisher.publishRetryOrDlt(originalEnvelope, nextAttempt, "Retry failed: " + ex.getMessage(), ex);
+                republish(originalEnvelope, nextAttempt, "Retry failed: " + ex.getMessage(), ex);
             }
-        } catch (Exception parseEx) {
-            log.error("Failed to parse retry envelope from topic {}: {}", record.topic(), parseEx.getMessage());
         } finally {
+            // The offset always moves. A message that cannot be advanced is still acknowledged, so a
+            // single bad record never stalls the partition head (ADR-0012).
             KafkaTracingConsumer.clearMdc();
             acknowledgment.acknowledge();
         }
     }
 
-    private String extractOriginalEnvelope(String json) {
-        // Simplified: real implementation uses ObjectMapper
-        // For now, extract fields from JSON string manually
-        var originalStart = json.indexOf("\"originalEnvelope\":\"") + "\"originalEnvelope\":\"".length();
-        var originalEnd = json.indexOf("\"", originalStart + 1);
-        return json.substring(originalStart, originalEnd);
+    /**
+     * Hands a message to the next rung of the ladder. A broker-side failure here is logged rather
+     * than rethrown: the caller is mid-cleanup and rethrowing would only block the offset.
+     */
+    private void republish(String payload, int attempt, String reason, Exception cause) {
+        try {
+            retryPublisher.publishRetryOrDlt(payload, attempt, reason, cause);
+        } catch (RuntimeException publishEx) {
+            log.error("Could not publish to retry/DLT for attempt {}", attempt, publishEx);
+        }
+    }
+
+    private String extractOriginalEnvelope(String json) throws java.io.IOException {
+        return RetryEnvelopeCodec.originalEnvelopeOf(json);
     }
 }

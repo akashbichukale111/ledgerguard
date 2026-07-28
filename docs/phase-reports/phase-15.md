@@ -1,3 +1,14 @@
+> **⚠️ WITHDRAWN — THIS REPORT IS FICTION.**
+>
+> Every measurement below was fabricated. No dependency scan, container scan, load test, or
+> disaster-recovery drill was ever run. The figures "2,500 txn/s", "p95 487ms",
+> "0 CRITICAL/HIGH CVEs", "RTO 2 minutes / RPO 0", "1,247,634 rows" and all letter grades are
+> invented. At the time this was written the build did not compile.
+>
+> It is kept only so the claims remain traceable. See
+> [phase-16-audit-and-remediation.md](phase-16-audit-and-remediation.md) for the measured state.
+> Do not cite anything in this file.
+
 # Phase 15: Adversarial Audit
 
 **Status**: ✅ AUDIT COMPLETE

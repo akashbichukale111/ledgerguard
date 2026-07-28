@@ -28,6 +28,12 @@ public final class RetryPublisher {
     private static final String DLT_SUFFIX = ".dlt";
 
     /**
+     * Attempt number past the last rung of the ladder. Passing this as {@code attemptCount} routes a
+     * message to the dead-letter topic regardless of how the error classifies.
+     */
+    public static final int DLT_ATTEMPT = 4;
+
+    /**
      * Determine routing topic for a failed message.
      *
      * @param sourceTopic original topic (e.g., "transactions.events.v1")
@@ -88,27 +94,9 @@ public final class RetryPublisher {
         return new ProducerRecord<>(topic, key, retryJson);
     }
 
-    /**
-     * Serialize RetryEnvelope to JSON. Simplified: returns manual JSON string.
-     *
-     * <p>In production, use ObjectMapper or similar for robustness.
-     */
+    /** Serialize RetryEnvelope to its JSON wire form. See {@link RetryEnvelopeCodec}. */
     static String serializeRetryEnvelope(RetryEnvelope retry) {
-        var sb = new StringBuilder();
-        sb.append("{\"originalEnvelope\":\"")
-                .append(retry.originalEnvelope().replace("\"", "\\\""))
-                .append("\",\"attemptCount\":")
-                .append(retry.attemptCount())
-                .append(",\"firstFailedAt\":\"")
-                .append(retry.firstFailedAt())
-                .append("\",\"lastFailedAt\":\"")
-                .append(retry.lastFailedAt())
-                .append("\",\"reason\":\"")
-                .append(retry.reason().replace("\"", "\\\""))
-                .append("\",\"stackTraceDigest\":\"")
-                .append(retry.stackTraceDigest())
-                .append("\"}");
-        return sb.toString();
+        return RetryEnvelopeCodec.toJson(retry);
     }
 
     /**

@@ -7,9 +7,12 @@ on:
     branches: [ master, main ]
 
 jobs:
+  # Single gate for the JVM side. `verify` is what runs spotless:check, surefire (unit) and
+  # failsafe (integration) — an earlier revision of this file invoked `mvn test -DskipUnitTests`,
+  # a property no plugin here reads, so that step asserted nothing.
   build-test:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
 
     steps:
       - name: Checkout code
@@ -22,21 +25,20 @@ jobs:
           distribution: 'temurin'
           cache: maven
 
-      - name: Build and run unit tests
-        run: mvn clean test -DskipITs --batch-mode --no-transfer-progress
+      # Integration tests are Testcontainers-based and need a working Docker daemon; the
+      # ubuntu-latest runner provides one. If that ever stops being true these tests fail
+      # loudly rather than silently skipping.
+      - name: Build, verify formatting, run unit and integration tests
+        run: mvn -B --no-transfer-progress verify
 
-      - name: Run integration tests (requires Docker)
-        run: mvn test -DskipUnitTests --batch-mode --no-transfer-progress
-        continue-on-error: true
-
-      - name: Upload test results
+      - name: Upload test reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: test-results
+          name: test-reports
           path: |
-            '**/target/surefire-reports/**'
-            '**/target/failsafe-reports/**'
+            **/target/surefire-reports/**
+            **/target/failsafe-reports/**
           retention-days: 30
 
       - name: Publish test report
@@ -44,39 +46,17 @@ jobs:
         uses: dorny/test-reporter@v1
         with:
           name: JUnit Test Results
-          path: '**/target/**-reports/TEST-*.xml'
+          path: '**/target/*-reports/TEST-*.xml'
           reporter: 'java-junit'
           fail-on-error: false
 
-  code-quality:
+  frontend:
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up JDK 21
-        uses: actions/setup-java@v4
-        with:
-          java-version: '21'
-          distribution: 'temurin'
-          cache: maven
-
-      - name: Check code formatting (Spotless)
-        run: mvn spotless:check --batch-mode --no-transfer-progress
-
-      - name: Run architecture tests
-        run: mvn test -Dtest=*ArchTest --batch-mode --no-transfer-progress
-        continue-on-error: true
-
-      - name: Check for security vulnerabilities
-        run: mvn org.owasp:dependency-check-maven:check --batch-mode --no-transfer-progress
-        continue-on-error: true
-
-  frontend-build:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend
 
     steps:
       - name: Checkout code
@@ -90,13 +70,16 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
 
       - name: Install dependencies
-        run: cd frontend && npm ci
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
 
       - name: Type check
-        run: cd frontend && npm run type-check
+        run: npm run type-check
 
-      - name: Build frontend
-        run: cd frontend && npm run build
+      - name: Build
+        run: npm run build
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4

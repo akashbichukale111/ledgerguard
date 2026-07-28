@@ -18,7 +18,11 @@
     "resolveJsonModule": true,
     "moduleResolution": "bundler",
     "isolatedModules": true,
+    // Vite owns emit. Without this a bare `tsc` scatters compiled .js next to every source
+    // file, which then gets picked up by the linter and, worse, committed.
+    "noEmit": true,
     "jsx": "react-jsx",
+    "baseUrl": ".",
     "paths": {
       "@/*": [
         "src/*"
@@ -27,10 +31,5 @@
   },
   "include": [
     "src"
-  ],
-  "references": [
-    {
-      "path": "./tsconfig.app.json"
-    }
   ]
 }
