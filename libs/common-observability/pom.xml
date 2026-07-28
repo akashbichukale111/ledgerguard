@@ -10,4 +10,15 @@
 
   <artifactId>common-observability</artifactId>
   <description>Tracing, MDC, structured-logging and metric naming conventions.</description>
+
+  <dependencies>
+    <dependency>
+      <groupId>org.apache.kafka</groupId>
+      <artifactId>kafka-clients</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>slf4j-api</artifactId>
+    </dependency>
+  </dependencies>
 </project>

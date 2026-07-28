@@ -2,15 +2,15 @@ package dev.ledgerguard.query.adapter.in.messaging;
 
 import java.util.Objects;
 
+import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.kafka.support.Acknowledgment;
-import org.springframework.kafka.support.KafkaHeaders;
-import org.springframework.messaging.handler.annotation.Header;
-import org.springframework.messaging.handler.annotation.Payload;
 import org.springframework.stereotype.Service;
 
+import dev.ledgerguard.common.observability.KafkaTracingConsumer;
+import dev.ledgerguard.common.observability.MdcContext;
 import dev.ledgerguard.query.adapter.out.messaging.RetryPublishingService;
 import dev.ledgerguard.query.application.ProjectionService;
 
@@ -35,58 +35,48 @@ public class RetryEventConsumer {
     @KafkaListener(
             topics = "${ledgerguard.retry.topics.1:transactions.events.v1.retry.1}",
             groupId = "${spring.application.name}-retry-1")
-    void consumeRetry1(
-            @Payload String retryJson,
-            @Header(KafkaHeaders.RECEIVED_TOPIC) String topic,
-            @Header(KafkaHeaders.OFFSET) long offset,
-            Acknowledgment acknowledgment) {
-        processRetry(retryJson, topic, offset, 2, acknowledgment);
+    void consumeRetry1(ConsumerRecord<String, String> record, Acknowledgment acknowledgment) {
+        processRetry(record, 2, acknowledgment);
     }
 
     @KafkaListener(
             topics = "${ledgerguard.retry.topics.2:transactions.events.v1.retry.2}",
             groupId = "${spring.application.name}-retry-2")
-    void consumeRetry2(
-            @Payload String retryJson,
-            @Header(KafkaHeaders.RECEIVED_TOPIC) String topic,
-            @Header(KafkaHeaders.OFFSET) long offset,
-            Acknowledgment acknowledgment) {
-        processRetry(retryJson, topic, offset, 3, acknowledgment);
+    void consumeRetry2(ConsumerRecord<String, String> record, Acknowledgment acknowledgment) {
+        processRetry(record, 3, acknowledgment);
     }
 
     @KafkaListener(
             topics = "${ledgerguard.retry.topics.3:transactions.events.v1.retry.3}",
             groupId = "${spring.application.name}-retry-3")
-    void consumeRetry3(
-            @Payload String retryJson,
-            @Header(KafkaHeaders.RECEIVED_TOPIC) String topic,
-            @Header(KafkaHeaders.OFFSET) long offset,
-            Acknowledgment acknowledgment) {
-        processRetry(retryJson, topic, offset, 4, acknowledgment);
+    void consumeRetry3(ConsumerRecord<String, String> record, Acknowledgment acknowledgment) {
+        processRetry(record, 4, acknowledgment);
     }
 
-    private void processRetry(
-            String retryJson, String topic, long offset, int nextAttempt, Acknowledgment acknowledgment) {
+    private void processRetry(ConsumerRecord<String, String> record, int nextAttempt, Acknowledgment acknowledgment) {
         try {
-            var originalEnvelope = extractOriginalEnvelope(retryJson);
+            KafkaTracingConsumer.populateMdcFromHeaders(record);
+            MdcContext.put(MdcContext.EVENT_TYPE, "retry");
 
-            log.info("Reprocessing retry from {} (offset={})", topic, offset);
+            var originalEnvelope = extractOriginalEnvelope(record.value());
+
+            log.info("Reprocessing retry from {} (offset={})", record.topic(), record.offset());
 
             try {
                 boolean applied = projections.apply(originalEnvelope);
                 if (applied) {
-                    log.info("Retry successful: {} now applied", topic);
+                    log.info("Retry successful: {} now applied", record.topic());
                 } else {
-                    log.debug("Retry duplicate or stale: {} skipped (idempotent)", topic);
+                    log.debug("Retry duplicate or stale: {} skipped (idempotent)", record.topic());
                 }
             } catch (Throwable ex) {
                 log.warn("Retry failed: {}", ex.getMessage());
                 retryPublisher.publishRetryOrDlt(originalEnvelope, nextAttempt, "Retry failed: " + ex.getMessage(), ex);
             }
         } catch (Exception parseEx) {
-            log.error("Failed to parse retry envelope from topic {}: {}", topic, parseEx.getMessage());
+            log.error("Failed to parse retry envelope from topic {}: {}", record.topic(), parseEx.getMessage());
         } finally {
-            // Always acknowledge to move partition forward (non-blocking retry)
+            KafkaTracingConsumer.clearMdc();
             acknowledgment.acknowledge();
         }
     }
