@@ -67,3 +67,4 @@ Thumbs.db
 
 # Local runtime output
 /perf/results/*.local.json
+pit-reports/

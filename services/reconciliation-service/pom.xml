@@ -10,4 +10,124 @@
 
   <artifactId>reconciliation-service</artifactId>
   <description>Saga orchestration, the matching engine and the exception lifecycle.</description>
+
+  <dependencies>
+    <dependency>
+      <groupId>dev.ledgerguard</groupId>
+      <artifactId>common-core</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>dev.ledgerguard</groupId>
+      <artifactId>contracts</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-data-jpa</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-actuator</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.kafka</groupId>
+      <artifactId>spring-kafka</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.flywaydb</groupId>
+      <artifactId>flyway-core</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.flywaydb</groupId>
+      <artifactId>flyway-database-postgresql</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.postgresql</groupId>
+      <artifactId>postgresql</artifactId>
+      <scope>runtime</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>postgresql</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter-params</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>net.jqwik</groupId>
+      <artifactId>jqwik</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <!-- Mutation testing, scoped to the matching engine only.
+           PIT measures whether tests ASSERT, not merely whether they execute lines — a far
+           stronger signal than coverage. It is slow, so it is pointed at the package where a
+           silent defect is most expensive and nowhere else. Run with: mvn -Ppit test -->
+      <plugin>
+        <groupId>org.pitest</groupId>
+        <artifactId>pitest-maven</artifactId>
+        <version>1.17.4</version>
+        <configuration>
+          <targetClasses>
+            <param>dev.ledgerguard.reconciliation.domain.matching.*</param>
+          </targetClasses>
+          <targetTests>
+            <param>dev.ledgerguard.reconciliation.matching.ReconciliationEngineTest*</param>
+          </targetTests>
+          <excludedTestClasses>
+            <!-- The Testcontainers saga IT needs Docker, and jqwik uses its own JUnit engine.
+                 Neither belongs in a mutation run scoped to the pure matching engine. -->
+            <param>dev.ledgerguard.reconciliation.saga.*</param>
+            <param>dev.ledgerguard.reconciliation.matching.ReconciliationEnginePropertyTest</param>
+          </excludedTestClasses>
+          <outputFormats>
+            <param>XML</param>
+            <param>HTML</param>
+          </outputFormats>
+          <timestampedReports>false</timestampedReports>
+        </configuration>
+        <dependencies>
+          <dependency>
+            <groupId>org.pitest</groupId>
+            <artifactId>pitest-junit5-plugin</artifactId>
+            <version>1.2.2</version>
+          </dependency>
+        </dependencies>
+      </plugin>
+
+      <plugin>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-maven-plugin</artifactId>
+        <configuration>
+          <!-- See transaction-service: without a classifier, repackage replaces the jar and
+               failsafe loses the application classes. -->
+          <classifier>boot</classifier>
+        </configuration>
+        <executions>
+          <execution>
+            <goals>
+              <goal>repackage</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
 </project>
