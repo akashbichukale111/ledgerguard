@@ -28,6 +28,11 @@
       <version>${project.version}</version>
     </dependency>
     <dependency>
+      <groupId>dev.ledgerguard</groupId>
+      <artifactId>common-security</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-web</artifactId>
     </dependency>
@@ -46,6 +51,10 @@
     <dependency>
       <groupId>org.springframework.kafka</groupId>
       <artifactId>spring-kafka</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-security</artifactId>
     </dependency>
     <dependency>
       <groupId>org.flywaydb</groupId>
