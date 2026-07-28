@@ -1,0 +1,30 @@
+**/.git
+**/.gitignore
+**/.DS_Store
+**/README.md
+**/LICENSE
+**/docs
+**/infra
+**/perf
+
+# Maven
+**/target
+**/.m2
+
+# Node
+**/node_modules
+**/dist
+**/.npm
+
+# IDE
+**/.vscode
+**/.idea
+**/*.iml
+**/.gradle
+
+# CI/CD
+**/.github
+
+# CI artifacts
+**/test-results
+**/coverage
