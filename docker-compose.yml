@@ -2,11 +2,23 @@
 # LedgerGuard — local stack.
 #
 # Profiles (see docs/local-development.md):
-#   infra  datastores + Kafka + Zipkin. Run services from an IDE against this.
-#   core   infra + auth, transaction, reconciliation, gateway.
-#   full   everything, including the operations console.
+#   infra  datastores + Kafka + Zipkin.
+#   core   SAME AS infra today.
+#   full   SAME AS infra today.
 #
 #   migrate  one-shot Flyway runners. Not a long-running profile.
+#
+# core and full were documented as "infra + the application services" and
+# "everything, including the operations console". That was never true of this
+# file -- it defines five containers (postgres, mongo, redis, kafka, zipkin) and
+# no application service, so all three profiles resolve to the same five. The
+# comment is corrected rather than deleted because the gap is the point: the
+# application services live in docker-compose-full.yml, which is a SEPARATE and
+# incompatible stack (ZooKeeper + confluentinc/cp-kafka, different ports,
+# no profiles) and is not merged by `docker compose` automatically.
+#
+# Until the two files are reconciled, run application services from an IDE (or
+# `docker compose -f docker-compose-full.yml`) against this infra.
 #
 # Image names are canonical Docker Hub references on purpose. If your network
 # cannot reach Docker Hub, configure a registry mirror at the DAEMON level
@@ -97,6 +109,25 @@ services:
     <<: *restart
     image: apache/kafka:3.8.1
     profiles: ["infra", "core", "full"]
+    # Pinned numerically to work around:
+    #   Error response from daemon: unable to find user appuser:
+    #   no matching entries in passwd file
+    #
+    # The image declares `USER appuser` as a NAME, so the daemon has to read
+    # /etc/passwd out of the container rootfs to resolve it before the container
+    # can start. Some daemon/snapshotter configurations cannot do that lookup,
+    # and the container never starts. A numeric user needs no lookup at all.
+    #
+    # 1000:1000 is not a guess -- it is exactly what the name resolves to.
+    # From the 3.8.1 image's own layer:
+    #   /etc/passwd  ->  appuser:x:1000:1000:Linux User,,,:/home/appuser:/bin/bash
+    #   /opt/kafka       1000:1000  drwxr-xr-x
+    #   /var/lib/kafka   1000:0     drwxrwxr-x   (data dir, where the volume mounts)
+    #   /etc/kafka       1000:0     drwxrwxr-x
+    # Every path the broker writes is owned by UID 1000 with owner rwx, so this
+    # grants byte-identical access to what USER appuser grants. It is a lookup
+    # change, not a privilege change -- the broker still runs unprivileged.
+    user: "1000:1000"
     ports:
       - "9092:9092"
     environment:
