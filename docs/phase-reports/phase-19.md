@@ -1,7 +1,8 @@
 # Phase 19: A Contracted Reconciliation Event, and a Real Gateway
 
-**Status**: ✅ Build green — 320 unit tests, 0 failures. Two long-standing empty spots filled.
-One regression introduced during this phase, caught by CI and fixed — see §3a.
+**Status**: 323 unit tests, 0 failures locally. Two long-standing empty spots filled.
+One regression introduced during this phase, misdiagnosed once, then traced to a missing
+dependency that also broke the service's own startup — see §3a. CI verification pending.
 
 Everything in §1–§3 was produced by running the command shown. §5 states what is still unexecuted
 or absent.
@@ -115,7 +116,7 @@ description was corrected to say so rather than continue to claim them.
 ```
 mvn -B --no-transfer-progress verify -DskipITs
 → BUILD SUCCESS
-→ 320 unit tests, 0 failures, 0 errors
+→ 323 unit tests, 0 failures, 0 errors
 
 cd frontend && npm run lint && npm run type-check && npm run build
 → all exit 0
@@ -130,39 +131,66 @@ cd frontend && npm run lint && npm run type-check && npm run build
 | common-security | 38 | 38 |
 | **ledgerguard-gateway** | **0 (empty module)** | **14** |
 | transaction-service | 14 | 14 |
-| reconciliation-service | 36 | **76** |
+| reconciliation-service | 36 | **79** |
 | query-service | 36 | **48** |
 | auth-server | 6 | 6 |
-| **Total** | **254** | **320** |
+| **Total** | **254** | **323** |
 
 ---
 
-## 3a. A regression this phase introduced, and how it surfaced
+## 3a. A regression this phase introduced — a wrong diagnosis, then the real one
 
 The first push (`1337269`) was green locally and **failed on CI**: all 13 `SagaOrchestratorIT`
 tests errored with `Failed to load ApplicationContext`.
 
-Not a saga failure. `SagaOrchestratorIT` boots the whole application but supplies **only a
-PostgreSQL container**. Adding a `@KafkaListener` to the service meant Spring now starts a listener
-container during context refresh, which tried to reach a broker that the test never provides. The
-test's fixture had stopped covering what the application does.
+### The guess that was wrong
 
-Fixed by disabling listener auto-startup for that test:
+I assumed the new `@KafkaListener` was starting a listener container during context refresh against
+a broker `SagaOrchestratorIT` never provides, and pushed `bf38365` disabling listener auto-startup
+for that test. **It did not work — CI failed again, identically.** An earlier version of this
+section reported that fix as successful. It was not, and this rewrite is the correction.
 
-```java
-registry.add("spring.kafka.listener.auto-startup", () -> "false");
+The property is still there, because it is right on its own terms — that test provides no broker and
+does not need a consumer — but it fixed nothing.
+
+### The real cause, from the CI log
+
+```
+Parameter 1 of method reconciliationEventPublisher in ReconciliationConfig
+required a bean of type 'com.fasterxml.jackson.databind.ObjectMapper' that could not be found.
 ```
 
-Chosen over adding a Kafka container because this test is about saga state transitions against a
-real database; standing up a broker would make it slower and less focused without asserting
-anything more. It is also the pattern already used by `ProjectionIT` and `AuditChainIT` — the
-inconsistency was `SagaOrchestratorIT`, which had never needed it before. `WritePathIT` runs a real
-`KafkaContainer` and needs no such property. All four are now consistent.
+reconciliation-service had **no `spring-boot-starter-web`**. It is the only headless service in the
+repo — no controllers — so nobody had missed it. But Boot builds its auto-configured `ObjectMapper`
+through `Jackson2ObjectMapperBuilder`, and that class lives in `spring-web`. `jackson-databind`
+arrives transitively via spring-kafka, which is enough for `import ObjectMapper` to **compile** and
+not enough to produce a **bean**. Phase 19 added the first constructor in this service to inject one.
 
-**Worth naming plainly:** this could not have been caught locally. Integration tests are skipped
-here because there is no Docker daemon, so `mvn verify -DskipITs` was green while the branch was
-broken. That is the second consecutive phase in which CI found something local runs structurally
-cannot — the argument for reading CI after every push rather than assuming green.
+### This was never a test problem
+
+Two things follow, and both are worse than a broken test:
+
+1. **The application could not start.** Not the test context — the service. `docker compose up`
+   would have crashed reconciliation-service on boot. The image builds fine, because building an
+   image never boots the app.
+2. **Its healthcheck could never have passed anyway.** `application.yml` exposes
+   `management.endpoints.web` and the compose healthcheck wgets `http://localhost:8080/actuator/health`
+   — with no servlet container, nothing binds 8080. A second latent bug, in the same missing
+   dependency, that had been sitting there since the service was created in Phase 5.
+
+Adding `spring-boot-starter-web` fixes both.
+
+### What I got wrong about testability
+
+The earlier version of this section said this "could not have been caught locally" and drew the
+lesson "read CI after every push". That was self-serving. The real gap was that **no test anywhere a
+developer can run ever refreshed this service's context** — unit tests construct the publisher
+directly, and the only test that refreshes the real thing needs Docker.
+
+`ReconciliationConfigContextTest` closes that. `ApplicationContextRunner` refreshes the same bean
+definitions against mocked repositories and a mocked `KafkaTemplate` in ~3s, no daemon required, and
+asserts an `ObjectMapper` bean exists. Revert the pom change and it goes red locally in surefire.
+A missing bean belongs in a unit test, not in thirteen integration tests failing to load a context.
 
 ---
 

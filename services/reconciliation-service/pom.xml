@@ -31,6 +31,19 @@
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-data-jpa</artifactId>
     </dependency>
+    <!--
+      This service serves no business endpoint, but the web starter is not optional here.
+      Two things depend on it:
+        1. Boot's auto-configured ObjectMapper is built by Jackson2ObjectMapperBuilder, which lives
+           in spring-web. jackson-databind alone (which arrives transitively) makes the code compile
+           but leaves no ObjectMapper *bean*, so anything injecting one fails the context at boot.
+        2. management.endpoints.web and the compose healthcheck both address actuator over HTTP.
+           Without a servlet container nothing binds 8080 and the container never turns healthy.
+    -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-web</artifactId>
+    </dependency>
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-actuator</artifactId>
