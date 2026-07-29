@@ -20,6 +20,24 @@ function percent(rate: number | null): string {
   return rate === null ? '—' : `${(rate * 100).toFixed(1)}%`
 }
 
+/**
+ * Shown when query-service reports the read model is unavailable.
+ *
+ * Deliberately not styled as an error: nothing has failed. The hosted demo can run without a
+ * projection store, and an operator needs to know the panels are blank because the data cannot be
+ * read — not because no transactions exist.
+ */
+function ReadModelBanner() {
+  return (
+    <div className="read-model-banner" role="status">
+      <strong>Read model not available.</strong> Projections are served from MongoDB, which is not
+      configured or not reachable in this environment. Transactions are still being accepted and
+      published — the write path is unaffected — but they cannot be displayed here. Counts below are
+      not zero readings; they are absent readings.
+    </div>
+  )
+}
+
 export default function Dashboard() {
   const [metrics, setMetrics] = useState<DashboardMetrics | null>(null)
   const [loading, setLoading] = useState(true)
@@ -59,6 +77,7 @@ export default function Dashboard() {
     <div className="dashboard">
       <h1>Operations Dashboard</h1>
       {error && <div className="alert alert-warning">{error} — showing last known values.</div>}
+      {!metrics.readModelAvailable && <ReadModelBanner />}
 
       <div className="metrics-grid">
         <div className="metric-card">

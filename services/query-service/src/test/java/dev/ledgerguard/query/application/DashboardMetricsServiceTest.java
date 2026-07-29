@@ -34,7 +34,14 @@ class DashboardMetricsServiceTest {
         transactions = mock(Transaction360Repository.class);
         dltMessages = mock(DltMessageRepository.class);
         auditEvents = mock(AuditEventRepository.class);
-        service = new DashboardMetricsService(transactions, dltMessages, auditEvents, Clock.fixed(NOW, ZoneOffset.UTC));
+        // A configured read model, so these tests keep asserting the measured path. The degraded
+        // path is covered separately in ReadModelAvailabilityTest.
+        service = new DashboardMetricsService(
+                transactions,
+                dltMessages,
+                auditEvents,
+                Clock.fixed(NOW, ZoneOffset.UTC),
+                new ReadModelAvailability(true, "mongodb://localhost:27017/ledgerguard_read"));
     }
 
     private static Transaction360Document doc(String id, Instant occurredAt, Instant updatedAt) {

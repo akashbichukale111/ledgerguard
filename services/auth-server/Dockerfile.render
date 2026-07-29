@@ -1,0 +1,40 @@
+# ---------------------------------------------------------------------------
+# Render build for the hosted demo. Generated from one template for all five
+# services -- see docs/deployment.md. Differs from the local Dockerfile in
+# three ways that matter:
+#
+#   1. Starts via docker/cloud-entrypoint.sh, which builds a Kafka truststore
+#      from KAFKA_CA_PEM and applies 512 MB heap settings.
+#   2. Does NOT pin -Dspring.profiles.active. The local Dockerfile hardcodes
+#      "docker", and a -D flag outranks SPRING_PROFILES_ACTIVE, so the cloud
+#      profile could never be selected.
+#   3. No HEALTHCHECK. Render polls the health path itself; a container-level
+#      check would only duplicate it and burn cycles on a 0.1-CPU instance.
+# ---------------------------------------------------------------------------
+FROM maven:3.9-eclipse-temurin-21 AS build
+
+WORKDIR /build
+COPY pom.xml .
+COPY libs libs
+COPY services services
+
+RUN --mount=type=cache,target=/root/.m2 \
+    mvn -B -q -pl services/auth-server -am package -DskipTests -Dspotless.check.skip=true
+
+FROM eclipse-temurin:21-jre-alpine
+
+RUN addgroup -g 1000 appuser \
+    && adduser -D -u 1000 -G appuser appuser
+
+WORKDIR /app
+COPY --from=build --chown=appuser:appuser /build/services/auth-server/target/auth-server-*.jar app.jar
+COPY --chown=appuser:appuser docker/cloud-entrypoint.sh /app/cloud-entrypoint.sh
+
+RUN chmod 440 app.jar && chmod 550 /app/cloud-entrypoint.sh && chmod 550 /app
+
+USER appuser
+
+# Documentation only. Render injects $PORT and the entrypoint binds it.
+EXPOSE 8080
+
+ENTRYPOINT ["/app/cloud-entrypoint.sh"]

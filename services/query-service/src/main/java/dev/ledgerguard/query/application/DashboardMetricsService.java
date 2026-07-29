@@ -49,16 +49,19 @@ public class DashboardMetricsService {
     private final DltMessageRepository dltMessages;
     private final AuditEventRepository auditEvents;
     private final Clock clock;
+    private final ReadModelAvailability readModel;
 
     public DashboardMetricsService(
             Transaction360Repository transactions,
             DltMessageRepository dltMessages,
             AuditEventRepository auditEvents,
-            Clock clock) {
+            Clock clock,
+            ReadModelAvailability readModel) {
         this.transactions = Objects.requireNonNull(transactions, "transactions");
         this.dltMessages = Objects.requireNonNull(dltMessages, "dltMessages");
         this.auditEvents = Objects.requireNonNull(auditEvents, "auditEvents");
         this.clock = Objects.requireNonNull(clock, "clock");
+        this.readModel = Objects.requireNonNull(readModel, "readModel");
     }
 
     /**
@@ -96,7 +99,35 @@ public class DashboardMetricsService {
             Double matchRate,
             Double reviewRate,
             Double errorRate,
-            int sampleSize) {}
+            int sampleSize,
+            boolean readModelAvailable) {}
+
+    /**
+     * The dashboard when the read model is off or unreachable.
+     *
+     * <p>Counts are zero and every rate is null — the same null the rates use for "nothing has
+     * reconciled", because "we cannot see the data" is also not a measurement. What separates the
+     * two cases is {@code readModelAvailable}, which the console renders as an explicit banner
+     * rather than letting an operator read empty panels as an empty system.
+     *
+     * <p>{@code dltDepth} and {@code auditChainLength} are still real here: both come from
+     * Postgres, which is present. Zeroing them would understate a genuine dead-letter backlog.
+     */
+    private DashboardMetrics degraded() {
+        return new DashboardMetrics(
+                0L,
+                dltMessages.countByReplayedAtIsNull(),
+                0L,
+                0L,
+                auditEvents.count(),
+                0L,
+                0L,
+                null,
+                null,
+                null,
+                0,
+                false);
+    }
 
     /** Terminal statuses, mirroring {@code ReconciliationOutcome} on the producing side. */
     private static final String MATCHED = "MATCHED";
@@ -105,6 +136,13 @@ public class DashboardMetricsService {
     private static final String UNMATCHED = "UNMATCHED";
 
     public DashboardMetrics current() {
+        // The dashboard is the console's landing page. If this throws, the operator sees nothing at
+        // all and cannot even reach the pages that do work, so an unreachable read model degrades
+        // here rather than propagating.
+        return readModel.query(this::measured, degraded());
+    }
+
+    private DashboardMetrics measured() {
         List<Transaction360Document> sample =
                 transactions.findAllByOrderByOccurredAtDescTransactionIdDesc(PageRequest.of(0, SAMPLE_SIZE));
 
@@ -140,7 +178,8 @@ public class DashboardMetricsService {
                 rateOf(transactions.countByStatus(MATCHED), reconciled),
                 rateOf(transactions.countByStatus(REQUIRES_REVIEW), reconciled),
                 rateOf(transactions.countByStatus(UNMATCHED), reconciled),
-                sample.size());
+                sample.size(),
+                true);
     }
 
     /**

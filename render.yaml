@@ -1,0 +1,174 @@
+# ---------------------------------------------------------------------------
+# Render blueprint for the hosted demo.
+#
+# Import this from the Render dashboard (Blueprints -> New Blueprint Instance)
+# and it creates all five services at once, rather than clicking through five
+# identical forms.
+#
+# NOTHING SECRET IS IN THIS FILE. Every credential is declared with
+# `sync: false`, which makes Render prompt for it at deploy time and store it
+# encrypted. Values that are not secret (profile names, URLs, log levels) are
+# inline so there is less to type.
+#
+# Read docs/deployment.md before importing -- the free tier's behaviour
+# (instances sleeping, cold starts, shared database) shapes what this is doing.
+# ---------------------------------------------------------------------------
+
+services:
+
+  # =========================================================================
+  # The only service the browser talks to. Vercel rewrites /api/* here.
+  #
+  # It is listed first because the others' URLs must be pasted into it, and
+  # Render creates services in file order.
+  # =========================================================================
+  - type: web
+    name: ledgerguard-gateway
+    runtime: docker
+    plan: free
+    region: oregon
+    dockerfilePath: ./services/ledgerguard-gateway/Dockerfile.render
+    dockerContext: .
+    healthCheckPath: /actuator/health
+    envVars:
+      - key: SPRING_PROFILES_ACTIVE
+        value: cloud
+      # Paste the other services' Render URLs here after their first deploy.
+      # fromService would resolve these automatically on a paid plan; free
+      # services have no private network, so they are entered by hand.
+      - key: AUTH_SERVER_URL
+        sync: false
+      - key: TRANSACTION_SERVICE_URL
+        sync: false
+      - key: QUERY_SERVICE_URL
+        sync: false
+      - key: LOG_LEVEL
+        value: INFO
+
+  # =========================================================================
+  # Login. No datastore, no broker -- the cheapest service here and the one
+  # that cold-starts fastest.
+  # =========================================================================
+  - type: web
+    name: ledgerguard-auth
+    runtime: docker
+    plan: free
+    region: oregon
+    dockerfilePath: ./services/auth-server/Dockerfile.render
+    dockerContext: .
+    healthCheckPath: /actuator/health
+    envVars:
+      - key: SPRING_PROFILES_ACTIVE
+        value: cloud
+      # Your Vercel domain. Only needed if the console calls this service
+      # directly; through the gateway it is one origin and CORS never applies.
+      # Comma-separated; patterns allowed, e.g. https://ledgerguard-*.vercel.app
+      - key: CORS_ALLOWED_ORIGINS
+        sync: false
+
+  # =========================================================================
+  # Write side: accepts instructions, writes the aggregate and the outbox in
+  # one transaction, publishes from the outbox.
+  # =========================================================================
+  - type: web
+    name: ledgerguard-transaction
+    runtime: docker
+    plan: free
+    region: oregon
+    dockerfilePath: ./services/transaction-service/Dockerfile.render
+    dockerContext: .
+    healthCheckPath: /actuator/health
+    envVars:
+      - key: SPRING_PROFILES_ACTIVE
+        value: cloud
+      # jdbc:postgresql://HOST:PORT/defaultdb?sslmode=require
+      # The sslmode parameter is required by Aiven and is the single most
+      # common thing to leave off.
+      - key: JDBC_DATABASE_URL
+        sync: false
+      - key: DATABASE_USERNAME
+        sync: false
+      - key: DATABASE_PASSWORD
+        sync: false
+      - key: KAFKA_BOOTSTRAP_SERVERS
+        sync: false
+      - key: KAFKA_SASL_JAAS_CONFIG
+        sync: false
+      # Aiven's per-project CA in PEM form. Omit entirely for a provider whose
+      # brokers use a public CA (Confluent Cloud, Upstash, Redpanda Cloud).
+      - key: KAFKA_CA_PEM
+        sync: false
+      - key: KAFKA_SASL_MECHANISM
+        value: SCRAM-SHA-256
+      - key: KAFKA_SECURITY_PROTOCOL
+        value: SASL_SSL
+
+  # =========================================================================
+  # Read side: projects events into MongoDB, serves the console's queries,
+  # owns the hash-chained audit log in Postgres.
+  # =========================================================================
+  - type: web
+    name: ledgerguard-query
+    runtime: docker
+    plan: free
+    region: oregon
+    dockerfilePath: ./services/query-service/Dockerfile.render
+    dockerContext: .
+    healthCheckPath: /actuator/health
+    envVars:
+      - key: SPRING_PROFILES_ACTIVE
+        value: cloud
+      - key: JDBC_DATABASE_URL
+        sync: false
+      - key: DATABASE_USERNAME
+        sync: false
+      - key: DATABASE_PASSWORD
+        sync: false
+      - key: KAFKA_BOOTSTRAP_SERVERS
+        sync: false
+      - key: KAFKA_SASL_JAAS_CONFIG
+        sync: false
+      - key: KAFKA_CA_PEM
+        sync: false
+      - key: KAFKA_SASL_MECHANISM
+        value: SCRAM-SHA-256
+      - key: KAFKA_SECURITY_PROTOCOL
+        value: SASL_SSL
+      # MongoDB Atlas M0 connection string. LEAVE THIS UNSET and the service
+      # still starts -- every projection-backed endpoint reports itself
+      # unavailable and the console shows an explicit empty state instead of
+      # errors. The write path is unaffected either way.
+      - key: MONGO_URI
+        sync: false
+
+  # =========================================================================
+  # Consumes TransactionReceived, runs the matching engine, publishes
+  # TransactionReconciled. This is what moves a transaction off RECEIVED.
+  # =========================================================================
+  - type: web
+    name: ledgerguard-reconciliation
+    runtime: docker
+    plan: free
+    region: oregon
+    dockerfilePath: ./services/reconciliation-service/Dockerfile.render
+    dockerContext: .
+    healthCheckPath: /actuator/health
+    envVars:
+      - key: SPRING_PROFILES_ACTIVE
+        value: cloud
+      - key: JDBC_DATABASE_URL
+        sync: false
+      - key: DATABASE_USERNAME
+        sync: false
+      - key: DATABASE_PASSWORD
+        sync: false
+      - key: KAFKA_BOOTSTRAP_SERVERS
+        sync: false
+      - key: KAFKA_SASL_JAAS_CONFIG
+        sync: false
+      - key: KAFKA_CA_PEM
+        sync: false
+      - key: KAFKA_SASL_MECHANISM
+        value: SCRAM-SHA-256
+      - key: KAFKA_SECURITY_PROTOCOL
+        value: SASL_SSL

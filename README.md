@@ -5,6 +5,63 @@
 [![Build and Test](https://github.com/akashbichukale111/ledgerguard/actions/workflows/build-and-test.yml/badge.svg)](https://github.com/akashbichukale111/ledgerguard/actions/workflows/build-and-test.yml)
 [![Security Scan](https://github.com/akashbichukale111/ledgerguard/actions/workflows/security-scan.yml/badge.svg)](https://github.com/akashbichukale111/ledgerguard/actions/workflows/security-scan.yml)
 
+## Live demo
+
+> **Not deployed yet.** The deployment configuration is committed and the build
+> passes against it, but nothing has been deployed and no URL exists. This
+> section is a template — fill in the URL once you have run through
+> [`docs/deployment.md`](docs/deployment.md). It deliberately does not carry a
+> placeholder link that looks real.
+
+| | |
+|---|---|
+| **Console** | _not deployed — paste your Vercel URL here_ |
+| **API** | _not deployed — paste your Render gateway URL here_ |
+
+**Demo logins** (from `UserCatalog`, all four are real and enforced server-side):
+
+| Username | Password | Role | Can do |
+|---|---|---|---|
+| `admin` | `admin` | ADMIN | everything |
+| `operations` | `operations` | OPERATIONS | submit, replay from DLT, verify audit |
+| `analyst` | `analyst` | ANALYST | view dashboards, DLT, audit |
+| `user` | `user` | USER | view transactions only |
+
+Seed it with real data — POSTed through the actual API, not hardcoded:
+
+```bash
+./scripts/seed-demo.sh https://YOUR-GATEWAY.onrender.com 40
+```
+
+### What is reduced in the hosted demo
+
+Free tiers cost something, and it is worth being direct about what:
+
+- **Services sleep after 15 minutes idle.** The first request takes 30–60s, and
+  can wake two instances in sequence. Hit the URL and wait a minute before
+  showing it to anyone.
+- **One Postgres, not three.** The free plan gives a single database, so the
+  three services share it with separate Flyway history tables. The documented
+  architecture gives each its own.
+- **No Zipkin, no Prometheus scrape, no Redis.** Trace IDs are still in the
+  logs; `/actuator/prometheus` is still exposed with nothing reading it. Redis
+  only ever backed rate limiting, which was never implemented.
+- **The read model may be off.** If `MONGO_URI` is unset the console shows an
+  explicit "read model not available" banner rather than errors. Transactions
+  are still accepted and published — only the projected view is missing.
+- **Match rate will read 0%.** Not a deployment fault:
+  `ReconcileTransactionHandler.externalCandidatesFor` returns an empty list
+  because no counterparty statement feed exists in this repository, so every
+  transaction reconciles `UNMATCHED`. The engine, contract, projection, metrics
+  and console are all exercised regardless.
+- **Auth is HTTP Basic**, and the console holds a replayable credential in
+  `localStorage`. Fine for a demo with throwaway data; not production.
+
+Full setup, including the caveat about whether Aiven's free tier actually
+includes Kafka, is in [`docs/deployment.md`](docs/deployment.md).
+
+---
+
 ## Overview
 
 LedgerGuard is a cloud-native, event-driven platform for real-time transaction reconciliation across multiple financial systems. It processes transaction streams, detects matches, routes errors to a dead-letter topic, and provides operators with an audit trail and replay capability.

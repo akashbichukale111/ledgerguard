@@ -1,6 +1,18 @@
 import axios from 'axios'
 
-const API_BASE = '/api/v1'
+/**
+ * Same-origin by default.
+ *
+ * Locally the Vite dev proxy serves `/api`; on Vercel a rewrite in vercel.json forwards it to the
+ * gateway. Both keep the console on one origin, so the browser never sends a preflight and CORS
+ * cannot be the thing that breaks the demo.
+ *
+ * VITE_API_BASE_URL overrides it with an absolute URL for the direct-to-gateway setup. That path
+ * IS cross-origin and needs CORS configured on the gateway, which is why it is not the default.
+ */
+const API_BASE = import.meta.env.VITE_API_BASE_URL
+  ? `${String(import.meta.env.VITE_API_BASE_URL).replace(/\/+$/, '')}/api/v1`
+  : '/api/v1'
 
 const client = axios.create({
   baseURL: API_BASE,

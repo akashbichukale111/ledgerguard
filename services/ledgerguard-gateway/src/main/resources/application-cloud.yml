@@ -1,0 +1,57 @@
+# ---------------------------------------------------------------------------
+# Hosted demo profile for the edge.
+#
+# The gateway is the ONLY backend the browser talks to. That is not decoration:
+# Vercel rewrites match on path and cannot match on HTTP method, and the CQRS
+# split routes POST /api/v1/transactions and GET /api/v1/transactions to
+# different services. Only the gateway can make that distinction, so pointing
+# Vercel at it keeps the console on one origin and avoids CORS entirely.
+#
+# Free instances sleep. The timeouts below are sized for a downstream service
+# that is cold-starting, not for a warm one.
+# ---------------------------------------------------------------------------
+
+spring:
+  cloud:
+    gateway:
+      server:
+        webflux:
+          httpclient:
+            # A sleeping Render instance accepts the connection only once it has
+            # woken. 2s (the local value) fails every first request after idle.
+            connect-timeout: ${GATEWAY_CONNECT_TIMEOUT_MS:20000}
+            # A cold JVM start behind this can take most of a minute. Shorter
+            # than the wake-up time and the first request always 504s, which
+            # reads as "the demo is broken" rather than "it is waking up".
+            response-timeout: ${GATEWAY_RESPONSE_TIMEOUT:90s}
+  main:
+    lazy-initialization: ${LAZY_INIT:true}
+
+ledgerguard:
+  gateway:
+    # Render service URLs, e.g. https://ledgerguard-auth.onrender.com
+    # No `:?` guard: an unset value falls back to the localhost default, which
+    # fails fast and obviously in the gateway log rather than at boot.
+    auth-server: ${AUTH_SERVER_URL:http://localhost:8084}
+    transaction-service: ${TRANSACTION_SERVICE_URL:http://localhost:8081}
+    query-service: ${QUERY_SERVICE_URL:http://localhost:8083}
+
+server:
+  port: ${PORT:8080}
+  shutdown: graceful
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: never
+      probes:
+        enabled: true
+
+logging:
+  level:
+    dev.ledgerguard: ${LOG_LEVEL:INFO}
+    org.springframework.cloud.gateway: ${GATEWAY_LOG_LEVEL:INFO}

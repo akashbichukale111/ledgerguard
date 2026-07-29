@@ -104,3 +104,26 @@
   font-size: 0.875rem;
   line-height: 1.5;
 }
+
+/*
+ * Read-model-unavailable banner.
+ *
+ * Informational, not an error colour: nothing has failed. The hosted demo can run without a
+ * projection store, and this state needs to read as "cannot see the data" rather than "the system
+ * is broken" — the same distinction the null match rate draws.
+ */
+.read-model-banner {
+  margin: 0 0 1.25rem;
+  padding: 0.9rem 1.1rem;
+  border: 1px solid #b8860b;
+  border-left-width: 4px;
+  border-radius: 4px;
+  background: #fffbe6;
+  color: #5c4700;
+  line-height: 1.5;
+}
+
+.read-model-banner strong {
+  display: block;
+  margin-bottom: 0.25rem;
+}

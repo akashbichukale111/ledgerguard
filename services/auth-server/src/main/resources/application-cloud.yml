@@ -1,0 +1,42 @@
+# ---------------------------------------------------------------------------
+# Hosted demo profile for the login endpoint.
+#
+# No datastore and no broker: the demo user catalog is in code (UserCatalog),
+# which is why this service starts in a couple of seconds and is the cheapest
+# thing in the deployment.
+#
+# CORS is the one thing that differs from local. Locally the Vite dev server
+# proxies the console's origin onto this port; in the hosted demo the console is
+# served by Vercel on a different origin, so the browser sends a preflight that
+# the hardcoded localhost origin would reject.
+# ---------------------------------------------------------------------------
+
+ledgerguard:
+  cors:
+    # No wildcard default. An unset value means no cross-origin caller is
+    # allowed, which fails visibly during setup rather than quietly permitting
+    # every origin on the internet to POST credentials here.
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:}
+
+server:
+  port: ${PORT:8080}
+  shutdown: graceful
+
+spring:
+  main:
+    lazy-initialization: ${LAZY_INIT:true}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: never
+      probes:
+        enabled: true
+
+logging:
+  level:
+    dev.ledgerguard: ${LOG_LEVEL:INFO}

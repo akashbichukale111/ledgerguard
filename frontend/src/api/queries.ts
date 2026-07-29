@@ -81,6 +81,14 @@ export interface DashboardMetrics {
   errorRate: number | null
   /** How many documents the lag and window figures were computed from. Rates are NOT sampled. */
   sampleSize: number
+  /**
+   * False when the read model (MongoDB) is not configured or not reachable.
+   *
+   * The counts and rates are then meaningless rather than zero, and the console says so instead of
+   * rendering an empty system. The write path is unaffected in that state — transactions are still
+   * accepted and published, they just cannot be displayed.
+   */
+  readModelAvailable: boolean
 }
 
 export const transactionApi = {

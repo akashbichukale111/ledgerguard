@@ -9,7 +9,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -42,9 +41,6 @@ import dev.ledgerguard.common.security.UserCatalog;
 public class LoginController {
     private static final Logger log = LoggerFactory.getLogger(LoginController.class);
 
-    /** Console dev-server origin; in the packaged deployment nginx proxies from the same origin. */
-    private static final String CONSOLE_ORIGIN = "http://localhost:3000";
-
     public record LoginRequest(String username, String password) {}
 
     public record AuthenticatedUser(String name, List<String> roles, List<String> permittedOperations) {}
@@ -53,7 +49,6 @@ public class LoginController {
 
     public record LoginFailure(String message) {}
 
-    @CrossOrigin(origins = CONSOLE_ORIGIN, allowCredentials = "true")
     @PostMapping("/login")
     public ResponseEntity<?> login(@RequestBody LoginRequest request) {
         if (request == null || request.username() == null || request.password() == null) {
