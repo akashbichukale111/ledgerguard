@@ -1,8 +1,8 @@
 # Phase 19: A Contracted Reconciliation Event, and a Real Gateway
 
-**Status**: 323 unit tests, 0 failures locally. Two long-standing empty spots filled.
-One regression introduced during this phase, misdiagnosed once, then traced to a missing
-dependency that also broke the service's own startup — see §3a. CI verification pending.
+**Status**: green on CI at `7bf2b0b` — 323 unit tests and 28 integration tests, 0 failures. Two
+long-standing empty spots filled. One regression introduced during this phase, misdiagnosed once,
+then traced to a missing dependency that also broke the service's own startup — see §3a.
 
 Everything in §1–§3 was produced by running the command shown. §5 states what is still unexecuted
 or absent.
@@ -191,6 +191,21 @@ directly, and the only test that refreshes the real thing needs Docker.
 definitions against mocked repositories and a mocked `KafkaTemplate` in ~3s, no daemon required, and
 asserts an `ObjectMapper` bean exists. Revert the pom change and it goes red locally in surefire.
 A missing bean belongs in a unit test, not in thirteen integration tests failing to load a context.
+
+### Verified
+
+`7bf2b0b`, GitHub Actions run `30410350807`, both jobs green:
+
+```
+SagaOrchestratorIT   13 passed, 0 failed   (11s)   ← was 13 errors
+WritePathIT          10 passed, 0 failed   (28s)
+AuditChainIT, ProjectionIT   passed
+surefire totals: 14, 14, 10, 79, 13, 48, 21, 6 — 0 failures, 0 errors throughout
+```
+
+The compose healthcheck half of the bug is **fixed but still unverified** — a servlet container now
+exists to bind 8080, but nothing has run `docker compose up` to watch the container turn healthy.
+That remains item 1 in §5.
 
 ---
 
